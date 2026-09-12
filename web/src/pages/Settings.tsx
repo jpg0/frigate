@@ -34,6 +34,8 @@ import { isMobile } from "react-device-detect";
 import { FaVideo } from "react-icons/fa";
 import { CameraConfig, FrigateConfig } from "@/types/frigateConfig";
 import type { ConfigSectionData, JsonObject } from "@/types/configForm";
+import isEqual from "lodash/isEqual";
+import { maskCredentials } from "@/utils/credentialMask";
 import useSWR from "swr";
 import FilterSwitch from "@/components/filter/FilterSwitch";
 import { ZoneMaskFilterButton } from "@/components/filter/ZoneMaskFilter";
@@ -49,13 +51,18 @@ import FrigatePlusSettingsView from "@/views/settings/FrigatePlusSettingsView";
 import MediaSyncSettingsView from "@/views/settings/MediaSyncSettingsView";
 import RegionGridSettingsView from "@/views/settings/RegionGridSettingsView";
 import Go2RtcStreamsSettingsView from "@/views/settings/Go2RtcStreamsSettingsView";
-import DetectorsAndModelSettingsView from "@/views/settings/DetectorsAndModelSettingsView";
 import {
   SingleSectionPage,
   type SettingsPageProps,
   type SectionStatus,
 } from "@/views/settings/SingleSectionPage";
 import { useSearchEffect } from "@/hooks/use-overlay-state";
+import {
+  allSettingsViews,
+  settingsViewGroups,
+  ALLOWED_VIEWS_FOR_VIEWER,
+  type SettingsType,
+} from "@/types/settings";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useInitialCameraState } from "@/api/ws";
 import { useIsAdmin } from "@/hooks/use-is-admin";
@@ -94,14 +101,10 @@ import { mutate } from "swr";
 import { RJSFSchema } from "@rjsf/utils";
 import {
   buildConfigDataForPath,
-  buildHiddenFieldContext,
   flattenOverrides,
-  getSectionConfig,
   parseProfileFromSectionPath,
   prepareSectionSavePayload,
   PROFILE_ELIGIBLE_SECTIONS,
-  resolveHiddenFieldEntries,
-  sanitizeSectionData,
 } from "@/utils/configUtil";
 import type { ProfileState, ProfilesApiResponse } from "@/types/profile";
 import { getProfileColor } from "@/utils/profileColors";
@@ -119,70 +122,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { TooltipPortal } from "@radix-ui/react-tooltip";
-
-const allSettingsViews = [
-  "uiSettings",
-  "profiles",
-  "globalDetect",
-  "globalRecording",
-  "globalSnapshots",
-  "globalFfmpeg",
-  "globalMotion",
-  "globalObjects",
-  "globalReview",
-  "globalAudioEvents",
-  "globalLivePlayback",
-  "globalTimestampStyle",
-  "systemDatabase",
-  "systemTls",
-  "systemAuthentication",
-  "systemNetworking",
-  "systemProxy",
-  "systemUi",
-  "systemLogging",
-  "systemEnvironmentVariables",
-  "systemTelemetry",
-  "systemBirdseye",
-  "systemDetectorsAndModel",
-  "systemMqtt",
-  "systemGo2rtcStreams",
-  "integrationSemanticSearch",
-  "integrationGenerativeAi",
-  "integrationFaceRecognition",
-  "integrationLpr",
-  "integrationObjectClassification",
-  "integrationAudioTranscription",
-  "cameraDetect",
-  "cameraFfmpeg",
-  "cameraRecording",
-  "cameraSnapshots",
-  "cameraMotion",
-  "cameraObjects",
-  "cameraReview",
-  "cameraAudioEvents",
-  "cameraAudioTranscription",
-  "cameraNotifications",
-  "cameraLivePlayback",
-  "cameraBirdseye",
-  "cameraFaceRecognition",
-  "cameraLpr",
-  "cameraMqttConfig",
-  "cameraOnvif",
-  "cameraTimestampStyle",
-  "cameraManagement",
-  "masksAndZones",
-  "motionTuner",
-  "enrichments",
-  "triggers",
-  "debug",
-  "users",
-  "roles",
-  "notifications",
-  "frigateplus",
-  "mediaSync",
-  "regionGrid",
-] as const;
-type SettingsType = (typeof allSettingsViews)[number];
 
 const parsePendingDataKey = (pendingDataKey: string) => {
   if (pendingDataKey.includes("::")) {
@@ -243,6 +182,7 @@ const SystemEnvironmentVariablesSettingsPage = createSectionPage(
 );
 const SystemTelemetrySettingsPage = createSectionPage("telemetry", "global");
 const SystemBirdseyeSettingsPage = createSectionPage("birdseye", "global");
+const SystemDetectionModelsPage = createSectionPage("models", "global");
 const NotificationsSettingsPage = createSectionPage("notifications", "global");
 
 const SystemMqttSettingsPage = createSectionPage("mqtt", "global");
@@ -302,153 +242,75 @@ const CameraTimestampStyleSettingsPage = createSectionPage(
   "camera",
 );
 
-const settingsGroups = [
-  {
-    label: "general",
-    items: [{ key: "uiSettings", component: UiSettingsView }],
-  },
-  {
-    label: "globalConfig",
-    items: [
-      { key: "profiles", component: ProfilesView },
-      { key: "cameraManagement", component: CameraManagementView },
-      { key: "globalDetect", component: GlobalDetectSettingsPage },
-      { key: "globalObjects", component: GlobalObjectsSettingsPage },
-      { key: "globalMotion", component: GlobalMotionSettingsPage },
-      { key: "globalFfmpeg", component: GlobalFfmpegSettingsPage },
-      { key: "globalRecording", component: GlobalRecordingSettingsPage },
-      { key: "globalSnapshots", component: GlobalSnapshotsSettingsPage },
-      { key: "globalReview", component: GlobalReviewSettingsPage },
-      { key: "globalAudioEvents", component: GlobalAudioEventsSettingsPage },
-      {
-        key: "globalLivePlayback",
-        component: GlobalLivePlaybackSettingsPage,
-      },
-      {
-        key: "globalTimestampStyle",
-        component: GlobalTimestampStyleSettingsPage,
-      },
-    ],
-  },
-  {
-    label: "cameras",
-    items: [
-      { key: "cameraDetect", component: CameraDetectSettingsPage },
-      { key: "cameraObjects", component: CameraObjectsSettingsPage },
-      { key: "cameraMotion", component: CameraMotionSettingsPage },
-      { key: "motionTuner", component: MotionTunerView },
-      { key: "cameraFfmpeg", component: CameraFfmpegSettingsPage },
-      { key: "cameraRecording", component: CameraRecordingSettingsPage },
-      { key: "cameraSnapshots", component: CameraSnapshotsSettingsPage },
-      { key: "masksAndZones", component: MasksAndZonesView },
-      { key: "cameraReview", component: CameraReviewSettingsPage },
-      { key: "cameraAudioEvents", component: CameraAudioEventsSettingsPage },
-      {
-        key: "cameraAudioTranscription",
-        component: CameraAudioTranscriptionSettingsPage,
-      },
-      { key: "cameraBirdseye", component: CameraBirdseyeSettingsPage },
-      {
-        key: "cameraLivePlayback",
-        component: CameraLivePlaybackSettingsPage,
-      },
-      {
-        key: "cameraNotifications",
-        component: CameraNotificationsSettingsPage,
-      },
-      {
-        key: "cameraFaceRecognition",
-        component: CameraFaceRecognitionSettingsPage,
-      },
-      { key: "cameraLpr", component: CameraLprSettingsPage },
-      { key: "cameraOnvif", component: CameraOnvifSettingsPage },
-      { key: "cameraMqttConfig", component: CameraMqttConfigSettingsPage },
-      {
-        key: "cameraTimestampStyle",
-        component: CameraTimestampStyleSettingsPage,
-      },
-    ],
-  },
-  {
-    label: "enrichments",
-    items: [
-      {
-        key: "integrationSemanticSearch",
-        component: IntegrationSemanticSearchSettingsPage,
-      },
-      {
-        key: "integrationGenerativeAi",
-        component: IntegrationGenerativeAiSettingsPage,
-      },
-      {
-        key: "integrationFaceRecognition",
-        component: IntegrationFaceRecognitionSettingsPage,
-      },
-      { key: "integrationLpr", component: IntegrationLprSettingsPage },
-      {
-        key: "integrationObjectClassification",
-        component: IntegrationObjectClassificationSettingsPage,
-      },
-      { key: "triggers", component: TriggerView },
-      {
-        key: "integrationAudioTranscription",
-        component: IntegrationAudioTranscriptionSettingsPage,
-      },
-    ],
-  },
-  {
-    label: "system",
-    items: [
-      {
-        key: "systemGo2rtcStreams",
-        component: Go2RtcStreamsSettingsView,
-      },
-      {
-        key: "systemDetectorsAndModel",
-        component: DetectorsAndModelSettingsView,
-      },
-      { key: "systemDatabase", component: SystemDatabaseSettingsPage },
-      { key: "systemMqtt", component: SystemMqttSettingsPage },
-      { key: "systemBirdseye", component: SystemBirdseyeSettingsPage },
-      { key: "systemTls", component: SystemTlsSettingsPage },
-      {
-        key: "systemAuthentication",
-        component: SystemAuthenticationSettingsPage,
-      },
-      { key: "systemNetworking", component: SystemNetworkingSettingsPage },
-      { key: "systemProxy", component: SystemProxySettingsPage },
-      { key: "systemUi", component: SystemUiSettingsPage },
-      { key: "systemLogging", component: SystemLoggingSettingsPage },
-      {
-        key: "systemEnvironmentVariables",
-        component: SystemEnvironmentVariablesSettingsPage,
-      },
-      { key: "systemTelemetry", component: SystemTelemetrySettingsPage },
-    ],
-  },
-  {
-    label: "users",
-    items: [
-      { key: "users", component: UsersView },
-      { key: "roles", component: RolesView },
-    ],
-  },
-  {
-    label: "notifications",
-    items: [{ key: "notifications", component: NotificationsSettingsPage }],
-  },
-  {
-    label: "frigateplus",
-    items: [{ key: "frigateplus", component: FrigatePlusSettingsView }],
-  },
-  {
-    label: "maintenance",
-    items: [
-      { key: "mediaSync", component: MediaSyncSettingsView },
-      { key: "regionGrid", component: RegionGridSettingsView },
-    ],
-  },
-];
+// Every section key in `settingsViewGroups` maps to the view that renders it.
+const SECTION_VIEWS = {
+  uiSettings: UiSettingsView,
+  profiles: ProfilesView,
+  cameraManagement: CameraManagementView,
+  globalDetect: GlobalDetectSettingsPage,
+  globalObjects: GlobalObjectsSettingsPage,
+  globalMotion: GlobalMotionSettingsPage,
+  globalFfmpeg: GlobalFfmpegSettingsPage,
+  globalRecording: GlobalRecordingSettingsPage,
+  globalSnapshots: GlobalSnapshotsSettingsPage,
+  globalReview: GlobalReviewSettingsPage,
+  globalAudioEvents: GlobalAudioEventsSettingsPage,
+  globalLivePlayback: GlobalLivePlaybackSettingsPage,
+  globalTimestampStyle: GlobalTimestampStyleSettingsPage,
+  cameraDetect: CameraDetectSettingsPage,
+  cameraObjects: CameraObjectsSettingsPage,
+  cameraMotion: CameraMotionSettingsPage,
+  motionTuner: MotionTunerView,
+  cameraFfmpeg: CameraFfmpegSettingsPage,
+  cameraRecording: CameraRecordingSettingsPage,
+  cameraSnapshots: CameraSnapshotsSettingsPage,
+  masksAndZones: MasksAndZonesView,
+  cameraReview: CameraReviewSettingsPage,
+  cameraAudioEvents: CameraAudioEventsSettingsPage,
+  cameraAudioTranscription: CameraAudioTranscriptionSettingsPage,
+  cameraBirdseye: CameraBirdseyeSettingsPage,
+  cameraLivePlayback: CameraLivePlaybackSettingsPage,
+  cameraNotifications: CameraNotificationsSettingsPage,
+  cameraFaceRecognition: CameraFaceRecognitionSettingsPage,
+  cameraLpr: CameraLprSettingsPage,
+  cameraOnvif: CameraOnvifSettingsPage,
+  cameraMqttConfig: CameraMqttConfigSettingsPage,
+  cameraTimestampStyle: CameraTimestampStyleSettingsPage,
+  integrationSemanticSearch: IntegrationSemanticSearchSettingsPage,
+  integrationGenerativeAi: IntegrationGenerativeAiSettingsPage,
+  integrationFaceRecognition: IntegrationFaceRecognitionSettingsPage,
+  integrationLpr: IntegrationLprSettingsPage,
+  integrationObjectClassification: IntegrationObjectClassificationSettingsPage,
+  triggers: TriggerView,
+  integrationAudioTranscription: IntegrationAudioTranscriptionSettingsPage,
+  systemGo2rtcStreams: Go2RtcStreamsSettingsView,
+  systemDetectorsAndModel: SystemDetectionModelsPage,
+  systemDatabase: SystemDatabaseSettingsPage,
+  systemMqtt: SystemMqttSettingsPage,
+  systemBirdseye: SystemBirdseyeSettingsPage,
+  systemTls: SystemTlsSettingsPage,
+  systemAuthentication: SystemAuthenticationSettingsPage,
+  systemNetworking: SystemNetworkingSettingsPage,
+  systemProxy: SystemProxySettingsPage,
+  systemUi: SystemUiSettingsPage,
+  systemLogging: SystemLoggingSettingsPage,
+  systemEnvironmentVariables: SystemEnvironmentVariablesSettingsPage,
+  systemTelemetry: SystemTelemetrySettingsPage,
+  users: UsersView,
+  roles: RolesView,
+  notifications: NotificationsSettingsPage,
+  frigateplus: FrigatePlusSettingsView,
+  mediaSync: MediaSyncSettingsView,
+  regionGrid: RegionGridSettingsView,
+};
+
+const settingsGroups = settingsViewGroups.map((group) => ({
+  label: group.label,
+  items: group.views.map((key) => ({
+    key,
+    component: SECTION_VIEWS[key],
+  })),
+}));
 
 const CAMERA_SELECT_BUTTON_PAGES = [
   "debug",
@@ -474,8 +336,6 @@ const CAMERA_SELECT_BUTTON_PAGES = [
   "triggers",
   "regionGrid",
 ];
-
-const ALLOWED_VIEWS_FOR_VIEWER = ["uiSettings", "notifications"];
 
 // keys for camera sections
 const CAMERA_SECTION_MAPPING: Record<string, SettingsType> = {
@@ -557,8 +417,7 @@ const SYSTEM_SECTION_MAPPING: Record<string, SettingsType> = {
   environment_vars: "systemEnvironmentVariables",
   telemetry: "systemTelemetry",
   birdseye: "systemBirdseye",
-  detectors: "systemDetectorsAndModel",
-  model: "systemDetectorsAndModel",
+  models: "systemDetectorsAndModel",
 };
 
 const CAMERA_SECTION_KEYS = new Set<SettingsType>(
@@ -660,6 +519,11 @@ export default function Settings() {
 
   const isAdmin = useIsAdmin();
 
+  // for unmasked go2rtc stream sources
+  const { data: rawPaths } = useSWR<{
+    go2rtc: { streams: Record<string, string | string[]> };
+  }>(isAdmin ? "config/raw_paths" : null);
+
   const visibleSettingsViews = !isAdmin
     ? ALLOWED_VIEWS_FOR_VIEWER
     : allSettingsViews;
@@ -699,16 +563,13 @@ export default function Settings() {
     }
 
     return Object.values(config.cameras)
-      .filter(
-        (conf) =>
-          conf.ui.dashboard &&
-          conf.enabled_in_config &&
-          !isReplayCamera(conf.name),
-      )
+      .filter((conf) => conf.enabled_in_config && !isReplayCamera(conf.name))
       .sort((aConf, bConf) => aConf.ui.order - bConf.ui.order);
   }, [config]);
 
-  const [selectedCamera, setSelectedCamera] = useState<string>("");
+  const [selectedCamera, setSelectedCamera] = useState<string>(
+    () => searchParams.get("camera") ?? "",
+  );
 
   // Get all camera overrides for the selected camera
   const cameraOverrides = useAllCameraOverrides(config, selectedCamera);
@@ -788,6 +649,40 @@ export default function Settings() {
       },
     );
 
+    // go2rtc streams aren't schema-backed, so build their preview items directly
+    if ("go2rtc_streams" in pendingDataBySection) {
+      const live =
+        (pendingDataBySection["go2rtc_streams"] as Record<string, string[]>) ??
+        {};
+      const saved: Record<string, string[]> = {};
+      for (const [name, urls] of Object.entries(
+        rawPaths?.go2rtc?.streams ?? {},
+      )) {
+        saved[name] = Array.isArray(urls) ? urls : [urls];
+      }
+
+      // Added or changed streams
+      for (const [name, urls] of Object.entries(live)) {
+        if (name in saved && isEqual(urls, saved[name])) continue;
+        const masked = urls.map((url) => maskCredentials(url));
+        items.push({
+          scope: "global",
+          fieldPath: `go2rtc.streams.${name}`,
+          value: masked.length === 1 ? masked[0] : masked,
+        });
+      }
+
+      // Deleted streams (present in saved config, absent from pending)
+      for (const name of Object.keys(saved)) {
+        if (name in live) continue;
+        items.push({
+          scope: "global",
+          fieldPath: `go2rtc.streams.${name}`,
+          value: "",
+        });
+      }
+    }
+
     return items.sort((left, right) => {
       const scopeCompare = left.scope.localeCompare(right.scope);
       if (scopeCompare !== 0) return scopeCompare;
@@ -797,7 +692,13 @@ export default function Settings() {
       if (cameraCompare !== 0) return cameraCompare;
       return left.fieldPath.localeCompare(right.fieldPath);
     });
-  }, [config, fullSchema, pendingDataBySection, profileFriendlyNames]);
+  }, [
+    config,
+    fullSchema,
+    pendingDataBySection,
+    profileFriendlyNames,
+    rawPaths,
+  ]);
 
   // Map a pendingDataKey to SettingsType menu key for clearing section status
   const pendingKeyToMenuKey = useCallback(
@@ -834,8 +735,7 @@ export default function Settings() {
 
   // Show save/undo all buttons only when at least one pending change lives
   // outside the currently visible page. Map each pending key to its menu key
-  // (e.g. both `detectors` and `model` collapse to `systemDetectorsAndModel`)
-  // so a composite page with two pending config-sections still counts as one.
+  // so a page hosting several config-sections still counts as one.
   const showSaveAllButtons = useMemo(() => {
     const pendingKeys = Object.keys(pendingDataBySection);
     if (pendingKeys.length === 0) return false;
@@ -869,114 +769,57 @@ export default function Settings() {
     // after `mutate("config")` resolves
     const keysToClear: string[] = [];
 
-    // `detectors` and `model` are owned by DetectorsAndModelSettingsView,
-    // which saves them atomically (single combined PUT with a pre-clear when
-    // detector keys change or the Plus/Custom tab flips). Doing the same here
-    // keeps Save All consistent with the page's own Save button
-    const hasPendingDetectors = "detectors" in pendingDataBySection;
-    const hasPendingModel = "model" in pendingDataBySection;
-    if (hasPendingDetectors || hasPendingModel) {
+    // go2rtc streams are owned by Go2RtcStreamsSettingsView
+    if ("go2rtc_streams" in pendingDataBySection) {
       try {
-        const pendingDetectors = hasPendingDetectors
-          ? pendingDataBySection.detectors
-          : undefined;
-        const pendingModel = hasPendingModel
-          ? pendingDataBySection.model
-          : undefined;
-
-        // Hidden-field lists come from the section configs themselves so
-        // they stay in sync with what the embedded forms strip on render
-        const detectorHiddenFields = resolveHiddenFieldEntries(
-          getSectionConfig("detectors", "global").hiddenFields,
-          buildHiddenFieldContext(config, "global"),
-        );
-        const modelHiddenFields = resolveHiddenFieldEntries(
-          getSectionConfig("model", "global").hiddenFields,
-          buildHiddenFieldContext(config, "global"),
-        );
-        const sanitizedDetectors =
-          pendingDetectors !== undefined
-            ? sanitizeSectionData(pendingDetectors, detectorHiddenFields)
-            : undefined;
-        const sanitizedModel =
-          pendingModel !== undefined
-            ? sanitizeSectionData(pendingModel, modelHiddenFields)
-            : undefined;
-
-        // Pre-clear conditions: detector keys differ from saved config (rename
-        // or add/remove), OR the model save flips between Plus and Custom modes
-        let detectorKeysChanged = false;
-        if (sanitizedDetectors && typeof sanitizedDetectors === "object") {
-          const pendingKeySet = Object.keys(
-            sanitizedDetectors as JsonObject,
-          ).sort();
-          const savedKeySet = Object.keys(config.detectors ?? {}).sort();
-          detectorKeysChanged =
-            JSON.stringify(pendingKeySet) !== JSON.stringify(savedKeySet);
-        }
-        let modelTabChanged = false;
-        if (sanitizedModel && typeof sanitizedModel === "object") {
-          const newPath = (sanitizedModel as { path?: string }).path;
-          const oldPath = config.model?.path;
-          const newIsPlus =
-            typeof newPath === "string" && newPath.startsWith("plus://");
-          const oldIsPlus =
-            typeof oldPath === "string" && oldPath.startsWith("plus://");
-          modelTabChanged = newIsPlus !== oldIsPlus;
-        }
-
-        if (detectorKeysChanged || modelTabChanged) {
-          try {
-            await axios.put("config/set", {
-              requires_restart: 0,
-              config_data: { detectors: null, model: null },
-            });
-          } catch {
-            // best-effort cleanup; the merge-write below will surface any
-            // real error.
-          }
-        }
-
-        const combinedConfigData: Record<string, unknown> = {};
-        if (sanitizedDetectors !== undefined) {
-          combinedConfigData.detectors = sanitizedDetectors;
-        }
-        if (sanitizedModel !== undefined) {
-          combinedConfigData.model = sanitizedModel;
+        const liveStreams =
+          (pendingDataBySection["go2rtc_streams"] as Record<
+            string,
+            string[]
+          >) ?? {};
+        const streamsPayload: Record<string, string[] | string> = {
+          ...liveStreams,
+        };
+        const deletedStreamNames = Object.keys(
+          config.go2rtc?.streams ?? {},
+        ).filter((name) => !(name in liveStreams));
+        for (const deleted of deletedStreamNames) {
+          streamsPayload[deleted] = "";
         }
 
         await axios.put("config/set", {
           requires_restart: 0,
-          config_data: combinedConfigData,
+          config_data: { go2rtc: { streams: streamsPayload } },
         });
 
-        if (hasPendingDetectors) {
-          keysToClear.push("detectors");
-          savedKeys.push("detectors");
+        // Update the running go2rtc instance to match
+        const go2rtcUpdates: Promise<unknown>[] = [];
+        for (const [streamName, urls] of Object.entries(liveStreams)) {
+          if (urls[0]) {
+            go2rtcUpdates.push(
+              axios.put(
+                `go2rtc/streams/${streamName}?src=${encodeURIComponent(urls[0])}`,
+              ),
+            );
+          }
         }
-        if (hasPendingModel) {
-          keysToClear.push("model");
-          savedKeys.push("model");
+        for (const deleted of deletedStreamNames) {
+          go2rtcUpdates.push(axios.delete(`go2rtc/streams/${deleted}`));
         }
+        await Promise.allSettled(go2rtcUpdates);
 
-        if (hasPendingDetectors || hasPendingModel) {
-          successCount++;
-          anyNeedsRestart = true;
-        }
+        keysToClear.push("go2rtc_streams");
+        savedKeys.push("go2rtc_streams");
+        successCount++;
       } catch (error) {
         // eslint-disable-next-line no-console
-        console.error(
-          "Save All – error saving detectors/model atomically",
-          error,
-        );
-        if (hasPendingDetectors || hasPendingModel) {
-          failCount++;
-        }
+        console.error("Save All – error saving go2rtc streams", error);
+        failCount++;
       }
     }
 
     const pendingKeys = Object.keys(pendingDataBySection).filter(
-      (key) => key !== "detectors" && key !== "model",
+      (key) => key !== "go2rtc_streams",
     );
 
     for (const key of pendingKeys) {
@@ -1185,6 +1028,12 @@ export default function Settings() {
   });
 
   useSearchEffect("camera", (camera: string) => {
+    // the config drives the camera list, so keep the param until it loads
+    // rather than consuming it against an empty list
+    if (cameras.length === 0) {
+      return false;
+    }
+
     const cameraNames = cameras.map((c) => c.name);
     if (cameraNames.includes(camera)) {
       setSelectedCamera(camera);

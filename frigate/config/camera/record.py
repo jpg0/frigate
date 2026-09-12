@@ -1,18 +1,19 @@
 from enum import Enum
-from typing import Optional, Union
 
 from pydantic import Field
 
-from frigate.const import MAX_PRE_CAPTURE
+from frigate.const import MAX_PRE_CAPTURE, STREAM_TYPE_SUB
 from frigate.review.types import SeverityEnum
 
 from ..base import FrigateBaseModel
 
 __all__ = [
+    "ChaptersEnum",
     "RecordConfig",
     "RecordExportConfig",
     "RecordPreviewConfig",
     "RecordQualityEnum",
+    "RecordSubConfig",
     "EventsConfig",
     "ReviewRetainConfig",
     "RecordRetainConfig",
@@ -86,8 +87,14 @@ class RecordPreviewConfig(FrigateBaseModel):
     )
 
 
+class ChaptersEnum(str, Enum):
+    none = "none"
+    recording_segments = "recording_segments"
+    review_items = "review_items"
+
+
 class RecordExportConfig(FrigateBaseModel):
-    hwaccel_args: Union[str, list[str]] = Field(
+    hwaccel_args: str | list[str] = Field(
         default="auto",
         title="Export hwaccel args",
         description="Hardware acceleration args to use for export/transcode operations.",
@@ -97,6 +104,38 @@ class RecordExportConfig(FrigateBaseModel):
         ge=1,
         title="Maximum concurrent exports",
         description="Maximum number of export jobs to process at the same time.",
+    )
+    chapters: ChaptersEnum = Field(
+        default=ChaptersEnum.review_items,
+        title="Chapter metadata to embed in exported recordings",
+    )
+
+
+class RecordSubConfig(FrigateBaseModel):
+    enabled: bool = Field(
+        default=False,
+        title="Enable sub stream recording",
+        description="Enable recording of a second, lower quality stream for adaptive quality playback and extended retention.",
+    )
+    continuous: RecordRetainConfig = Field(
+        default_factory=RecordRetainConfig,
+        title="Sub stream continuous retention",
+        description="Number of days to retain sub stream recordings regardless of tracked objects or motion.",
+    )
+    motion: RecordRetainConfig = Field(
+        default_factory=RecordRetainConfig,
+        title="Sub stream motion retention",
+        description="Number of days to retain sub stream recordings triggered by motion.",
+    )
+    alerts: ReviewRetainConfig = Field(
+        default_factory=ReviewRetainConfig,
+        title="Sub stream alert retention",
+        description="Retention settings for sub stream recordings of alerts.",
+    )
+    detections: ReviewRetainConfig = Field(
+        default_factory=ReviewRetainConfig,
+        title="Sub stream detection retention",
+        description="Retention settings for sub stream recordings of detections.",
     )
 
 
@@ -141,11 +180,41 @@ class RecordConfig(FrigateBaseModel):
         title="Preview config",
         description="Settings controlling the quality of recording previews shown in the UI.",
     )
-    enabled_in_config: Optional[bool] = Field(
+    sub: RecordSubConfig = Field(
+        default_factory=RecordSubConfig,
+        title="Sub stream recording",
+        description="Settings for recording a second, lower quality stream.",
+    )
+    enabled_in_config: bool | None = Field(
         default=None,
         title="Original recording state",
         description="Indicates whether recording was enabled in the original static configuration.",
     )
+
+    def stream_enabled(self, stream_type: str) -> bool:
+        """Whether the given record stream type should currently be recording."""
+        if stream_type == STREAM_TYPE_SUB:
+            return self.enabled and self.sub.enabled
+
+        return self.enabled
+
+    @property
+    def effective_alert_days(self) -> float:
+        """Alert retention extended to the sub stream window when sub is enabled.
+
+        Review items and tracked objects must stay visible for as long as
+        either stream still has recordings.
+        """
+        if self.sub.enabled:
+            return max(self.alerts.retain.days, self.sub.alerts.days)
+        return self.alerts.retain.days
+
+    @property
+    def effective_detection_days(self) -> float:
+        """Detection retention extended to the sub window when sub is enabled."""
+        if self.sub.enabled:
+            return max(self.detections.retain.days, self.sub.detections.days)
+        return self.detections.retain.days
 
     @property
     def event_pre_capture(self) -> int:

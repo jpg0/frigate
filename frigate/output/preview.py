@@ -23,6 +23,7 @@ from frigate.ffmpeg_presets import (
 )
 from frigate.models import Previews
 from frigate.util.image import copy_yuv_to_position, get_blank_yuv_frame, get_yuv_crop
+from frigate.util.ownership import chown_to_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,8 @@ class FFMpegConverter(threading.Thread):
                 f"duration {self.frame_times[t_idx + 1] - self.frame_times[t_idx]}"
             )
 
+        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+
         try:
             p = sp.run(
                 self.ffmpeg_cmd.split(" "),
@@ -183,6 +186,7 @@ class FFMpegConverter(threading.Thread):
 
         if p.returncode == 0:
             logger.debug("successfully saved preview")
+            chown_to_runtime(self.path)
             self.requestor.send_data(
                 INSERT_PREVIEW,
                 {
@@ -251,7 +255,7 @@ class PreviewRecorder:
 
         # end segment at end of hour (use UTC to avoid DST issues)
         self.segment_end = (
-            (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1))
+            (datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=1))
             .replace(minute=0, second=0, microsecond=0)
             .timestamp()
         )
@@ -263,7 +267,7 @@ class PreviewRecorder:
 
         # check for existing items in cache
         start_ts = (
-            datetime.datetime.now(datetime.timezone.utc)
+            datetime.datetime.now(datetime.UTC)
             .replace(minute=0, second=0, microsecond=0)
             .timestamp()
         )
@@ -298,7 +302,7 @@ class PreviewRecorder:
     def reset_frame_cache(self, frame_time: float) -> None:
         self.segment_end = (
             (
-                datetime.datetime.fromtimestamp(frame_time, tz=datetime.timezone.utc)
+                datetime.datetime.fromtimestamp(frame_time, tz=datetime.UTC)
                 + datetime.timedelta(hours=1)
             )
             .replace(minute=0, second=0, microsecond=0)

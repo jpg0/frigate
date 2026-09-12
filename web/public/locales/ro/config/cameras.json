@@ -29,7 +29,7 @@
         },
         "listen": {
             "label": "Tipuri ascultate",
-            "description": "Lista de evenimente audio de detectat (ex: lătrat, alarmă_incendiu, țipăt, vorbire)."
+            "description": "Lista de evenimente audio de detectat (ex: lătrat, alarmă_incendiu, vorbire)."
         },
         "filters": {
             "label": "Filtre audio",
@@ -69,10 +69,6 @@
         "enabled": {
             "label": "Activare Birdseye",
             "description": "Activează sau dezactivează funcția Birdseye."
-        },
-        "mode": {
-            "label": "Mod urmărire",
-            "description": "Modul de includere a camerelor în Birdseye: 'objects', 'motion' sau 'continuous'."
         },
         "order": {
             "label": "Poziție",
@@ -152,11 +148,11 @@
         }
     },
     "ffmpeg": {
-        "label": "FFmpeg",
-        "description": "Setări FFmpeg: cale binar, argumente, accelerare hardware și ieșiri per rol.",
+        "label": "Stream-uri (FFmpeg)",
+        "description": "Intrările stream-ului camerei și opțiunile FFmpeg, inclusiv calea către binar, argumentele, hwaccel și argumentele de ieșire per rol.",
         "path": {
             "label": "Cale FFmpeg",
-            "description": "Calea către binarul FFmpeg sau un alias de versiune (\"5.0\" sau \"7.0\")."
+            "description": "Calea către binarul FFmpeg sau un alias de versiune (\"7.0\" sau \"8.0\")."
         },
         "global_args": {
             "label": "Argumente globale FFmpeg",
@@ -371,7 +367,7 @@
                 "description": "Folosește snapshot-urile obiectelor în loc de miniaturi pentru GenAI."
             },
             "prompt": {
-                "label": "Prompt descriere",
+                "label": "Prompt de descriere",
                 "description": "Șablonul de prompt implicit pentru descrierile GenAI."
             },
             "object_prompts": {
@@ -493,6 +489,9 @@
             "max_concurrent": {
                 "description": "Numărul maxim de sarcini de export de procesat în același timp.",
                 "label": "Număr maxim de exporturi simultane"
+            },
+            "chapters": {
+                "label": "Metadate de capitol de încorporat în înregistrările exportate"
             }
         },
         "preview": {
@@ -639,10 +638,6 @@
             "label": "Activează snapshot-urile",
             "description": "Activează sau dezactivează salvarea de snapshots pentru această cameră."
         },
-        "clean_copy": {
-            "label": "Salvează copie curată",
-            "description": "Salvează și o copie fără adnotări a snapshot-ului."
-        },
         "timestamp": {
             "label": "Overlay timestamp",
             "description": "Suprapune data și ora pe snapshot-urile din API."
@@ -669,10 +664,6 @@
             "default": {
                 "label": "Retenție implicită",
                 "description": "Numărul implicit de zile pentru păstrare."
-            },
-            "mode": {
-                "label": "Mod retenție",
-                "description": "Mod retenție: 'all', 'motion' sau 'active_objects'."
             },
             "objects": {
                 "label": "Retenție per obiect",
@@ -768,7 +759,7 @@
             "description": "Adresa de email folosită pentru notificări push sau cerută de anumiți furnizori de notificări."
         },
         "cooldown": {
-            "label": "Perioadă de răcire",
+            "label": "Perioadă de repaus",
             "description": "Timpul de așteptare (secunde) între notificări pentru a evita spamarea destinatarilor."
         },
         "enabled_in_config": {
@@ -864,8 +855,8 @@
             "description": "Ordine numerică folosită pentru sortarea camerei în interfață (dashboard și liste); numerele mai mari apar mai târziu."
         },
         "dashboard": {
-            "label": "Arată în interfață",
-            "description": "Comută vizibilitatea acestei camere peste tot în interfața Frigate. Dezactivarea acestei opțiuni va necesita editarea manuală a configurației pentru a vedea din nou camera în interfață."
+            "label": "Afișează pe tabloul de bord Live",
+            "description": "Comută dacă această cameră este vizibilă pe tabloul de bord Live implicit „Toate camerele”. Camera rămâne disponibilă în restul interfeței, inclusiv în grupurile de camere și în setări."
         },
         "review": {
             "label": "Arată în Revizuire",

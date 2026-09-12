@@ -12,7 +12,11 @@ from frigate.jobs.export import (
     ExportJob,
     ExportJobManager,
 )
-from frigate.record.export import PlaybackSourceEnum, RecordingExporter
+from frigate.record.export import (
+    ExportStreamEnum,
+    PlaybackSourceEnum,
+    RecordingExporter,
+)
 from frigate.types import JobStatusTypesEnum
 from frigate.util.ffmpeg import inject_progress_flags
 
@@ -38,7 +42,11 @@ def _make_exporter(
     exporter.ffmpeg_input_args = ffmpeg_input_args
     exporter.ffmpeg_output_args = ffmpeg_output_args
     exporter.cpu_fallback = False
+    exporter.stream = ExportStreamEnum.auto
     exporter.on_progress = on_progress
+    exporter.staged_runs = []
+    exporter.staged_transcode = False
+    exporter._coverage = ([], set(), False)
     return exporter
 
 
@@ -416,7 +424,7 @@ class TestSaveThumbnailFromPreviewFrames(unittest.TestCase):
         # comparison takes the current-hour branch (preview frames).
         import datetime
 
-        now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+        now = datetime.datetime.now(datetime.UTC).timestamp()
         exporter = _make_exporter()
         exporter.export_id = "thumb_short"
         exporter.start_time = now

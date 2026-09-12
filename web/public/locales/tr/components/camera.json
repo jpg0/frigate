@@ -16,7 +16,6 @@
         "title": "{{cameraName}} Yayın Ayarları",
         "audio": {
           "tips": {
-            "document": "Dökümantasyonu oku ",
             "title": "Bu yayın için kameranızın yayın çıkışında ses olması ve go2rtc'de ayarlanmış olması gerekmektedir."
           }
         },
@@ -68,7 +67,10 @@
     "cameras": {
       "desc": "Bu gruba dahil olacak kameraları seçin.",
       "label": "Kameralar"
-    }
+    },
+    "showAll": "Bütün Kamera Gruplarını Göster",
+    "showLess": "Daha Az",
+    "editGroups": "Kamera Gruplarını Düzenle"
   },
   "debug": {
     "options": {
@@ -82,6 +84,7 @@
     "zones": "Alanlar",
     "mask": "Maske",
     "motion": "Hareket",
-    "regions": "Tespit Bölgeleri"
+    "regions": "Tespit Bölgeleri",
+    "paths": "Yollar"
   }
 }

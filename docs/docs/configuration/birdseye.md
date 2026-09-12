@@ -6,19 +6,29 @@ import NavPath from "@site/src/components/NavPath";
 
 In addition to Frigate's Live camera dashboard, Birdseye allows a portable heads-up view of your cameras to see what is going on around your property / space without having to watch all cameras that may have nothing happening. Birdseye allows specific modes that intelligently show and disappear based on what you care about.
 
-Birdseye can be viewed by adding the "Birdseye" camera to a Camera Group in the Web UI. Add a Camera Group by pressing the "+" icon on the Live page, and choose "Birdseye" as one of the cameras.
+Birdseye can be viewed by adding the "Birdseye" camera to a Camera Group in the Web UI. Add a Camera Group by pressing the pencil icon in the sidebar on the Live page, and choose "Birdseye" as one of the cameras.
 
 Birdseye can also be used in Home Assistant dashboards, cast to media devices, etc.
 
+:::note
+
+Each camera tile in Birdseye is composed from the frames of the stream assigned the `detect` role, so a camera's image quality in Birdseye matches its detect stream resolution rather than a higher-resolution recording stream. If a camera looks low quality in Birdseye, increasing the detect width and height (or assigning the `detect` role to a higher-resolution stream) is what affects it. See [setting up camera inputs](./cameras.md#setting-up-camera-inputs) for how roles are assigned.
+
+:::
+
 ## Birdseye Behavior
 
-### Birdseye Modes
+### Birdseye Activity Types
 
-Birdseye offers different modes to customize which cameras show under which circumstances.
+Birdseye offers independent activity types that control when cameras are shown. Multiple activity types can be listed together.
 
-- **continuous:** All cameras are always included
-- **motion:** Cameras that have detected motion within the last 30 seconds are included
-- **objects:** Cameras that have tracked an active object within the last 30 seconds are included
+- **continuous:** The camera is always included
+- **motion:** The camera is included when motion was detected within the last 30 seconds
+- **all_objects:** The camera is included when a tracked object is present, active or stationary
+- **alerts:** The camera is included while an alert review item is in progress
+- **detections:** The camera is included while a detection review item is in progress
+
+`alerts` and `detections` follow the review item's own lifetime, so the camera is removed as soon as the review item ends. Which objects qualify for each is set in [review configuration](./review.md).
 
 ### Custom Birdseye Icon
 
@@ -33,27 +43,29 @@ To include a camera in Birdseye view only for specific circumstances, or exclude
 
 **Global settings:** Navigate to <NavPath path="Settings > System > Birdseye" /> to configure the default Birdseye behavior for all cameras.
 
-**Per-camera overrides:** Navigate to <NavPath path="Settings > Camera configuration > Birdseye" /> to override the mode or disable Birdseye for a specific camera.
+**Per-camera overrides:** Navigate to <NavPath path="Settings > Camera configuration > Birdseye" /> to override the activity types or disable Birdseye for a specific camera.
 
-| Field | Description |
-|-------|-------------|
-| **Enable Birdseye** | Whether this camera appears in Birdseye view |
-| **Tracking mode** | When to show the camera: `continuous`, `motion`, or `objects` |
+| Field                  | Description                                                |
+| ---------------------- | ---------------------------------------------------------- |
+| **Enable Birdseye**    | Whether this camera appears in Birdseye view               |
+| **Activity types**     | Conditions that determine when to show the camera          |
 
 </TabItem>
 <TabItem value="yaml">
 
-```yaml {8-10,12-14}
+```yaml {10-12,15-16}
 # Include all cameras by default in Birdseye view
 birdseye:
   enabled: True
-  mode: continuous
+  modes:
+    - continuous
 
 cameras:
   front:
-    # Only include the "front" camera in Birdseye view when objects are detected
+    # Only include the "front" camera in Birdseye view when an alert is in progress
     birdseye:
-      mode: objects
+      modes:
+        - alerts
   back:
     # Exclude the "back" camera from Birdseye view
     birdseye:
@@ -65,15 +77,15 @@ cameras:
 
 ### Birdseye Inactivity
 
-By default birdseye shows all cameras that have had the configured activity in the last 30 seconds. This threshold can be configured.
+By default birdseye shows all cameras that have had the configured activity in the last 30 seconds. This threshold can be configured, and applies to the `motion` and `all_objects` activity types only.
 
 <ConfigTabs>
 <TabItem value="ui">
 
 Navigate to <NavPath path="Settings > System > Birdseye" />.
 
-| Field | Description |
-|-------|-------------|
+| Field                    | Description                                                                 |
+| ------------------------ | --------------------------------------------------------------------------- |
 | **Inactivity threshold** | Seconds of inactivity before a camera is hidden from Birdseye (default: 30) |
 
 </TabItem>
@@ -100,9 +112,9 @@ The resolution and aspect ratio of birdseye can be configured. Resolution will i
 
 Navigate to <NavPath path="Settings > System > Birdseye" />.
 
-| Field | Description |
-|-------|-------------|
-| **Width** | Birdseye output width in pixels (default: 1280) |
+| Field      | Description                                     |
+| ---------- | ----------------------------------------------- |
+| **Width**  | Birdseye output width in pixels (default: 1280) |
 | **Height** | Birdseye output height in pixels (default: 720) |
 
 </TabItem>
@@ -120,12 +132,12 @@ birdseye:
 
 ### Sorting cameras in the Birdseye view
 
-It is possible to override the order of cameras that are being shown in the Birdseye view. The order is set at the camera level.
+It is possible to override the order of cameras that are being shown in the Birdseye view. The order is set at the camera level (when using YAML).
 
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > Camera configuration > Birdseye" /> for each camera and set the **Position** field to control the display order.
+Navigate to <NavPath path="Settings > System > Birdseye" /> and in the **Camera order** field, use the drag handle next to each camera name to control the display order.
 
 </TabItem>
 <TabItem value="yaml">
@@ -134,7 +146,8 @@ Navigate to <NavPath path="Settings > Camera configuration > Birdseye" /> for ea
 # Include all cameras by default in Birdseye view
 birdseye:
   enabled: True
-  mode: continuous
+  modes:
+    - continuous
 
 cameras:
   front:
@@ -161,8 +174,8 @@ It is possible to limit the number of cameras shown on birdseye at one time. Whe
 
 Navigate to <NavPath path="Settings > System > Birdseye" />.
 
-| Field | Description |
-|-------|-------------|
+| Field                    | Description                                                                         |
+| ------------------------ | ----------------------------------------------------------------------------------- |
 | **Layout > Max cameras** | Maximum number of cameras shown at once (e.g., `1` for only the most active camera) |
 
 </TabItem>
@@ -187,8 +200,8 @@ By default birdseye tries to fit 2 cameras in each row and then double in size u
 
 Navigate to <NavPath path="Settings > System > Birdseye" />.
 
-| Field | Description |
-|-------|-------------|
+| Field                       | Description                                              |
+| --------------------------- | -------------------------------------------------------- |
 | **Layout > Scaling factor** | Camera scaling factor between 1.0 and 5.0 (default: 2.0) |
 
 </TabItem>

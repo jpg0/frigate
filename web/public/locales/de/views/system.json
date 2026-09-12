@@ -32,11 +32,6 @@
       "gpuEncoder": "GPU Encoder",
       "npuUsage": "NPU Verwendung",
       "npuMemory": "NPU Speicher",
-      "intelGpuWarning": {
-        "title": "Intel GPU Statistik Warnung",
-        "message": "GPU stats nicht verfügbar",
-        "description": "Dies ist ein bekannter Fehler in den GPU-Statistik-Tools von Intel (intel_gpu_top), bei dem das Tool ausfällt und wiederholt eine GPU-Auslastung von 0 % anzeigt, selbst wenn die Hardwarebeschleunigung und die Objekterkennung auf der (i)GPU korrekt funktionieren. Dies ist kein Fehler von Frigate. Du kannst den Host neu starten, um das Problem vorübergehend zu beheben und zu prüfen, ob die GPU korrekt funktioniert. Dies hat keine Auswirkungen auf die Leistung."
-      },
       "gpuTemperature": "GPU Temperatur",
       "npuTemperature": "NPU Temperatur",
       "gpuCompute": "GPU Compute / Encode"
@@ -118,7 +113,6 @@
         "cameras_count_other": "{{count}} Kameras"
       },
       "empty": "Noch keine Nachrichten erfasst",
-      "count": "{{count}} Nachrichten",
       "expanded": {
         "payload": "Nutzinhalt"
       },
@@ -173,7 +167,20 @@
       "tips": {
         "title": "Kamera-Untersuchsungsinfo"
       },
-      "aspectRatio": "Seitenverhältnis"
+      "aspectRatio": "Seitenverhältnis",
+      "keyframes": {
+        "title": "Keyframe-Analyse",
+        "analyzing": "Keyframes werden analysiert... Noch {{seconds}} Sekunden",
+        "stillAnalyzing": "Keyframes werden noch analysiert...",
+        "recordStream": "Stream aufzeichnen:",
+        "keyframeCount": "Beobachtete Keyframes:",
+        "observedDuration": "Beobachtete Dauer:",
+        "gap": "Keyframe-Abstand (min. / durchschnittlich / max.):",
+        "segmentLength": "Länge des Aufzeichnungssegments:",
+        "ok": "Keyframes alle ~{{seconds}}s, gut geeignet für Aufzeichnung und Wiedergabe.",
+        "unknown": "Der Abstand zwischen den Keyframes konnte nicht ermittelt werden.",
+        "recordDisabled": "Die Aufzeichnung ist für diese Kamera deaktiviert."
+      }
     },
     "overview": "Übersicht",
     "label": {
@@ -253,7 +260,6 @@
     "detectIsSlow": "{{detect}} ist langsam ({{speed}} ms)",
     "detectIsVerySlow": "{{detect}} ist sehr langsam ({{speed}} ms)",
     "cameraIsOffline": "{{camera}} ist offline",
-    "shmTooLow": "Die Zuweisung für /dev/shm ({{total}} MB) sollte auf mindestens {{min}} MB erhöht werden.",
     "debugReplayActive": "Debug-Wiederholungssitzung ist aktiv"
   },
   "lastRefreshed": "Zuletzt aktualisiert: "

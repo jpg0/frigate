@@ -14,6 +14,7 @@ class CameraConfigUpdateEnum(str, Enum):
     add = "add"  # for adding a camera
     audio = "audio"
     audio_transcription = "audio_transcription"
+    autotracking = "autotracking"  # ptz autotracking only, without an onvif reinit
     birdseye = "birdseye"
     detect = "detect"
     enabled = "enabled"
@@ -95,6 +96,7 @@ class CameraConfigUpdateSubscriber:
             return
         elif update_type == CameraConfigUpdateEnum.remove:
             self.config.cameras.pop(camera, None)
+            self.config.drop_camera_model(camera)
             self.camera_configs.pop(camera, None)
             return
 
@@ -128,8 +130,13 @@ class CameraConfigUpdateSubscriber:
             config.objects = updated_config
         elif update_type == CameraConfigUpdateEnum.record:
             old_enabled_in_config = config.record.enabled_in_config
+            old_sub_enabled = config.record.sub.enabled
             config.record = updated_config
-            if old_enabled_in_config != updated_config.enabled_in_config:
+            # the record and record_sub ffmpeg outputs are gated on these
+            if (
+                old_enabled_in_config != updated_config.enabled_in_config
+                or old_sub_enabled != updated_config.sub.enabled
+            ):
                 config.recreate_ffmpeg_cmds()
         elif update_type == CameraConfigUpdateEnum.review:
             config.review = updated_config
@@ -145,6 +152,8 @@ class CameraConfigUpdateSubscriber:
             config.snapshots = updated_config
         elif update_type == CameraConfigUpdateEnum.onvif:
             config.onvif = updated_config
+        elif update_type == CameraConfigUpdateEnum.autotracking:
+            config.onvif.autotracking = updated_config
         elif update_type == CameraConfigUpdateEnum.timestamp_style:
             config.timestamp_style = updated_config
         elif update_type == CameraConfigUpdateEnum.zones:

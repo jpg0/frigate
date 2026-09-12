@@ -4,7 +4,7 @@ import logging
 import os
 import threading
 import time
-from typing import Any, Optional
+from typing import Any
 
 from peewee import DoesNotExist
 
@@ -83,6 +83,10 @@ class AudioTranscriptionPostProcessor(PostProcessorApi):
         """
         event_id = data["event_id"]
         camera_name = data["camera"]
+        camera_config = self.config.cameras.get(camera_name)
+
+        if camera_config is None:
+            return
 
         if data_type == PostProcessDataEnum.recording:
             start_ts = data["frame_time"]
@@ -104,7 +108,7 @@ class AudioTranscriptionPostProcessor(PostProcessorApi):
 
         try:
             audio_data = get_audio_from_recording(
-                self.config.cameras[camera_name].ffmpeg,
+                camera_config.ffmpeg,
                 camera_name,
                 start_ts,
                 end_ts,
@@ -142,7 +146,7 @@ class AudioTranscriptionPostProcessor(PostProcessorApi):
         except Exception as e:
             logger.error(f"Error in audio transcription post-processing: {e}")
 
-    def __transcribe_audio(self, audio_data: bytes) -> Optional[str]:
+    def __transcribe_audio(self, audio_data: bytes) -> str | None:
         """Transcribe WAV audio data using faster-whisper."""
         if not self.recognizer:
             logger.debug("Recognizer not initialized")
@@ -168,8 +172,9 @@ class AudioTranscriptionPostProcessor(PostProcessorApi):
                 return None
 
             logger.debug(
-                "Detected language '%s' with probability %f"
-                % (info.language, info.language_probability)
+                "Detected language '%s' with probability %f",
+                info.language,
+                info.language_probability,
             )
 
             return text

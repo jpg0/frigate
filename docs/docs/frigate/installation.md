@@ -78,13 +78,37 @@ Users of the Snapcraft build of Docker cannot use storage locations outside your
 
 Frigate utilizes shared memory to store frames during processing. The default `shm-size` provided by Docker is **64MB**.
 
-The default shm size of **128MB** is fine for setups with **2 cameras** detecting at **720p**. If Frigate is exiting with "Bus error" messages, it is likely because you have too many high resolution cameras and you need to specify a higher shm size, using [`--shm-size`](https://docs.docker.com/engine/reference/run/#runtime-constraints-on-resources) (or [`service.shm_size`](https://docs.docker.com/compose/compose-file/compose-file-v2/#shm_size) in Docker Compose).
+The default shm size of **128MB** is fine for setups with **2 cameras** detecting at **720p**. If Frigate is exiting with "Bus error" messages, it is likely because you have too many high resolution cameras and you need to specify a higher shm size, using [`--shm-size`](https://docs.docker.com/engine/reference/run/#runtime-constraints-on-resources) (or [`service.shm_size`](https://docs.docker.com/compose/compose-file/compose-file-v2/#shm_size) in Docker Compose). If raising the shm size does not help, check your [process and file limits](#process-and-file-limits) as well.
 
 The Frigate container also stores logs in shm, which can take up to **40MB**, so make sure to take this into account in your math as well.
 
 <ShmCalculator/>
 
 The shm size cannot be set per container for Home Assistant Apps. However, this is probably not required since by default Home Assistant Supervisor allocates `/dev/shm` with half the size of your total memory. If your machine has 8GB of memory, chances are that Frigate will have access to up to 4GB without any additional configuration.
+
+### Process and file limits
+
+Frigate runs many processes and opens a number of shared memory files. Installs with a large number of cameras can exceed the default limits your container runtime applies.
+
+Hitting the PID limit logs `RuntimeError: can't start new thread`, often followed by a "Bus error" that makes it look like an shm sizing problem. Compare the current count against the max from inside the container:
+
+```bash
+cat /sys/fs/cgroup/pids.current
+cat /sys/fs/cgroup/pids.max
+```
+
+If these are close, raise the limit with [`--pids-limit`](https://docs.docker.com/engine/containers/resource_constraints/) (or `service.pids_limit` in Docker Compose).
+
+Running out of file descriptors logs `OSError: [Errno 24] Too many open files`. Raise the limit in Docker Compose:
+
+```yaml
+services:
+  frigate:
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+```
 
 ## Extra Steps for Specific Hardware
 
@@ -94,11 +118,13 @@ The following sections contain additional setup steps that are only required if 
 
 By default, the Raspberry Pi limits the amount of memory available to the GPU. In order to use ffmpeg hardware acceleration, you must increase the available memory by setting `gpu_mem` to the maximum recommended value in `config.txt` as described in the [official docs](https://www.raspberrypi.org/documentation/computers/config_txt.html#memory-options).
 
-Additionally, the USB Coral draws a considerable amount of power. If using any other USB devices such as an SSD, you will experience instability due to the Pi not providing enough power to USB devices. You will need to purchase an external USB hub with it's own power supply. Some have reported success with <a href="https://amzn.to/3a2mH0P" target="_blank" rel="nofollow noopener sponsored">this</a> (affiliate link).
+Additionally, the USB Coral draws a considerable amount of power. If using any other USB devices such as an SSD, you will experience instability due to the Pi not providing enough power to USB devices. You will need to purchase an external USB hub with its own power supply. Some have reported success with <a href="https://amzn.to/3a2mH0P" target="_blank" rel="nofollow noopener sponsored">this</a> (affiliate link).
 
 ### Hailo-8
 
 The Hailo-8 and Hailo-8L AI accelerators are available in both M.2 and HAT form factors for the Raspberry Pi. The M.2 version typically connects to a carrier board for PCIe, which then interfaces with the Raspberry Pi 5 as part of the AI Kit. The HAT version can be mounted directly onto compatible Raspberry Pi models. Both form factors have been successfully tested on x86 platforms as well, making them versatile options for various computing environments.
+
+The HailoRT runtime is not part of the Frigate image; Frigate downloads and installs it at first start once a Hailo detector is configured. Containers without internet access can provide the files themselves, see [Detector runtimes](/frigate/network_requirements#detector-runtimes).
 
 #### Installation
 
@@ -291,6 +317,8 @@ The MemryX MX3 Accelerator is available in the M.2 2280 form factor (like an NVM
 
 To get started with MX3 hardware setup for your system, refer to the [Hardware Setup Guide](https://developer.memryx.com/2p1/get_started/install_hardware.html).
 
+The MemryX SDK used inside the container is not part of the Frigate image; Frigate downloads and installs it at first start once a MemryX detector is configured. Containers without internet access can provide the file themselves, see [Detector runtimes](/frigate/network_requirements#detector-runtimes). The host side driver still has to be installed as described below.
+
 Then follow these steps for installing the correct driver/runtime configuration:
 
 1. Copy or download [this script](https://github.com/blakeblackshear/frigate/blob/dev/docker/memryx/user_installation.sh).
@@ -455,6 +483,8 @@ Follow these steps for installation:
 
 To set up Frigate, follow the default installation instructions, for example: `ghcr.io/blakeblackshear/frigate:stable`
 
+The AXEngine python package is not part of the Frigate image; Frigate downloads and installs it at first start once an AXEngine detector is configured. Containers without internet access can provide the file themselves, see [Detector runtimes](/frigate/network_requirements#detector-runtimes).
+
 Next, grant Docker permissions to access your hardware by adding the following lines to your `docker-compose.yml` file:
 
 ```yaml
@@ -484,14 +514,13 @@ Generate a Frigate Docker Compose configuration based on your hardware and requi
 
 <DockerComposeGenerator/>
 
-
   </TabItem>
   <TabItem value="original" label="Example Docker Compose File">
 ```yaml
 services:
   frigate:
     container_name: frigate
-    privileged: true # this may not be necessary for all setups
+    # privileged: true # ONLY enable if your hardware requires it (see hardware-specific docs); prefer the device mappings below
     restart: unless-stopped
     stop_grace_period: 30s # allow enough time to shut down the various services
     image: ghcr.io/blakeblackshear/frigate:stable
@@ -522,6 +551,30 @@ services:
 ```
   </TabItem>
 </Tabs>
+
+### Recommended security options
+
+Frigate does not need elevated container privileges for most setups. The following hardens the container; add the `devices`/`group_add` entries your hardware requires (see the hardware acceleration docs):
+
+```yaml
+services:
+  frigate:
+    ...
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+```
+
+:::note
+
+`telemetry.stats.network_bandwidth` uses nethogs, which requires root with NET_ADMIN/NET_RAW capabilities. If you enable that stat, omit `cap_drop: [ALL]` or add `cap_add: [NET_ADMIN, NET_RAW]`.
+
+Platforms that genuinely require `privileged: true` (MemryX, some QNAP setups) are called out in their own sections and are unaffected by this guidance.
+
+:::
+
+Frigate's services run as an unprivileged user inside the container. See [Running as a non-root user](../configuration/non_root.md) for the run modes, the one time volume ownership migration, what each accelerator needs on the host, and the [hardened deployment](../configuration/non_root.md#hardened-deployment) layout with a read-only root filesystem.
 
 **Docker CLI**
 
@@ -588,6 +641,8 @@ Home Assistant OS users can install via the App repository.
 4. Setup your network configuration in the `Configuration` tab
 5. Start the App
 6. Use the _Open Web UI_ button to access the Frigate UI, then click in the _cog icon_ > _Configuration editor_ and configure Frigate to your liking
+
+App users who can't set container environment variables can put `FRIGATE_` values in a `secrets.yaml` next to `config.yml` in `/addon_configs/<addon_directory>` instead. See [`secrets.yaml`](../configuration/advanced/system.md#secretsyaml).
 
 There are several variants of the App available:
 

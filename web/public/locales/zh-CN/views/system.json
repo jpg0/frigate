@@ -56,7 +56,6 @@
       "resume": "继续",
       "clear": "清除",
       "empty": "未捕获到消息",
-      "count": "{{count}} 条消息",
       "expanded": {
         "payload": "Payload"
       },
@@ -106,11 +105,6 @@
       },
       "npuMemory": "NPU内存",
       "npuUsage": "NPU 使用率",
-      "intelGpuWarning": {
-        "title": "Intel GPU 处于警告状态",
-        "message": "GPU 状态不可用",
-        "description": "这是 Intel 的 GPU 状态报告工具（intel_gpu_top）的已知问题：该工具会失效并反复返回 GPU 使用率为 0%，即使在硬件加速和目标检测已在 (i)GPU 上正常运行的情况下也是如此，这并不是 Frigate 的 bug。你可以通过重启主机来临时修复该问题，并确认 GPU 正常工作。该问题并不会影响性能。"
-      },
       "gpuTemperature": "GPU 温度",
       "npuTemperature": "NPU 温度",
       "gpuCompute": "GPU 计算 / 编码"
@@ -175,7 +169,20 @@
       "tips": {
         "title": "摄像头信息"
       },
-      "aspectRatio": "宽高比"
+      "aspectRatio": "宽高比",
+      "keyframes": {
+        "title": "关键帧分析",
+        "analyzing": "正在分析关键帧... 剩余 {{seconds}} 秒",
+        "stillAnalyzing": "仍在分析关键帧...",
+        "recordStream": "录制视频流：",
+        "keyframeCount": "观察到的关键帧：",
+        "observedDuration": "观测持续时间：",
+        "gap": "关键帧间隔（最小值 / 平均值 / 最大值）：",
+        "segmentLength": "录制片段长度：",
+        "ok": "每 {{seconds}} 秒取一帧，适用于录制和回放。",
+        "unknown": "无法确定关键帧间隔。",
+        "recordDisabled": "此摄像头的录制功能已禁用。"
+      }
     },
     "framesAndDetections": "帧数/检测次数",
     "label": {
@@ -227,7 +234,6 @@
     "detectIsSlow": "{{detect}} 运行缓慢（{{speed}}毫秒）",
     "detectIsVerySlow": "{{detect}} 运行非常缓慢（{{speed}}毫秒）",
     "cameraIsOffline": "{{camera}} 已离线",
-    "shmTooLow": "/dev/shm 的分配空间过低（当前 {{total}} MB），应至少增加到 {{min}} MB。",
     "debugReplayActive": "调试回放会话正在进行"
   },
   "enrichments": {

@@ -1,8 +1,9 @@
 """Facilitates communication between processes."""
 
 import logging
+from collections.abc import Callable
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
 import zmq
 
@@ -31,6 +32,7 @@ class EmbeddingsRequestEnum(Enum):
     reprocess_plate = "reprocess_plate"
     # Review Descriptions
     summarize_review = "summarize_review"
+    regenerate_review_description = "regenerate_review_description"
 
 
 class EmbeddingsResponder:

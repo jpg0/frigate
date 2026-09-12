@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from collections import deque
 from multiprocessing import Queue, Value
 from multiprocessing.synchronize import Event as MpEvent
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import zmq
@@ -42,9 +42,9 @@ class ObjectDetector(ABC):
 class BaseLocalDetector(ObjectDetector):
     def __init__(
         self,
-        detector_config: Optional[BaseDetectorConfig] = None,
-        labels: Optional[str] = None,
-        stop_event: Optional[MpEvent] = None,
+        detector_config: BaseDetectorConfig | None = None,
+        labels: str | None = None,
+        stop_event: MpEvent | None = None,
     ) -> None:
         self.fps = EventsPerSecond()
         if labels is None:
@@ -83,7 +83,7 @@ class BaseLocalDetector(ObjectDetector):
         raw_detections = self.detect_raw(tensor_input)  # type: ignore[attr-defined]
 
         for d in raw_detections:
-            if int(d[0]) < 0 or int(d[0]) >= len(self.labels):
+            if int(d[0]) not in self.labels:
                 logger.warning(f"Raw Detect returned invalid label: {d}")
                 continue
             if d[1] < threshold:
@@ -353,9 +353,23 @@ class ObjectDetectProcess:
         logging.info("Detection process has exited...")
 
     def start_or_restart(self) -> None:
-        self.detection_start.value = 0.0  # type: ignore[attr-defined]
         if (self.detect_process is not None) and self.detect_process.is_alive():
-            self.stop()
+            logging.info("Waiting for detection process to exit gracefully...")
+            self.detect_process.join(timeout=30)
+            if self.detect_process.exitcode is None:
+                # detection_start is set only after detection_queue.get()
+                # returns. If it was reset during the grace period, the process
+                # recovered and may be waiting on the shared queue again.
+                if self.detection_start.value == 0.0:  # type: ignore[attr-defined]
+                    logging.info("Detection process recovered before restart")
+                    return
+
+                logging.info("Detection process didn't exit. Force killing...")
+                self.detect_process.kill()
+                self.detect_process.join()
+            logging.info("Detection process has exited...")
+
+        self.detection_start.value = 0.0  # type: ignore[attr-defined]
 
         # Async path for MemryX
         if self.detector_config.type == "memryx":
@@ -395,6 +409,9 @@ class RemoteObjectDetector:
         self.labels = labels
         self.name = name
         self.fps = EventsPerSecond()
+        # class ids already warned about, so an incomplete labelmap logs once
+        # per id instead of once per frame
+        self.unnamed_class_ids: set[int] = set()
         self.detection_queue = detection_queue
         self.stop_event = stop_event
         self.shm = UntrackedSharedMemory(name=self.name, create=False)
@@ -436,9 +453,21 @@ class RemoteObjectDetector:
         for d in self.out_np_shm:
             if d[1] < threshold:
                 break
-            detections.append(
-                (self.labels[int(d[0])], float(d[1]), (d[2], d[3], d[4], d[5]))
-            )
+
+            class_id = int(d[0])
+            label = self.labels.get(class_id)
+
+            if label is None:
+                if class_id not in self.unnamed_class_ids:
+                    self.unnamed_class_ids.add(class_id)
+                    logger.warning(
+                        "Detector returned class id %d for %s, which the labelmap does not name. Check that labelmap_path matches the model",
+                        class_id,
+                        self.name,
+                    )
+                continue
+
+            detections.append((label, float(d[1]), (d[2], d[3], d[4], d[5])))
         self.fps.update()
         return detections
 

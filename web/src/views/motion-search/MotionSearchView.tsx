@@ -51,7 +51,12 @@ import { useTimelineUtils } from "@/hooks/use-timeline-utils";
 import { useCameraPreviews } from "@/hooks/use-camera-previews";
 import { getChunkedTimeDay } from "@/utils/timelineUtil";
 
-import { MotionData, REVIEW_PADDING, ZoomLevel } from "@/types/review";
+import {
+  MotionData,
+  REVIEW_PADDING,
+  ReviewSegment,
+  ZoomLevel,
+} from "@/types/review";
 import {
   ASPECT_VERTICAL_LAYOUT,
   ASPECT_WIDE_LAYOUT,
@@ -85,6 +90,7 @@ type MotionSearchViewProps = {
 };
 
 const DEFAULT_EXPORT_WINDOW_SECONDS = 60;
+const NO_REVIEW_EVENTS: ReviewSegment[] = [];
 
 export default function MotionSearchView({
   config,
@@ -147,6 +153,7 @@ export default function MotionSearchView({
   const allPreviews = useCameraPreviews(timeRange, {
     camera: selectedCamera ?? undefined,
     fetchPreviews: !isSearchDialogOpen,
+    refreshOnHourRollover: true,
   });
 
   // ROI state
@@ -305,7 +312,7 @@ export default function MotionSearchView({
   const handleExportPreview = useCallback(() => {
     if (!exportRange) {
       toast.error(
-        t("export.toast.error.noVaildTimeSelected", {
+        t("export.toast.error.noValidTimeSelected", {
           ns: "components/dialog",
         }),
         {
@@ -351,7 +358,7 @@ export default function MotionSearchView({
   const handleExportSave = useCallback(() => {
     if (!exportRange || !selectedCamera) {
       toast.error(
-        t("export.toast.error.noVaildTimeSelected", {
+        t("export.toast.error.noValidTimeSelected", {
           ns: "components/dialog",
         }),
         {
@@ -514,6 +521,12 @@ export default function MotionSearchView({
       : null,
   );
 
+  const timelineMotionEvents = useMemo(() => motionData ?? [], [motionData]);
+  const timelineNoRecordings = useMemo(
+    () => noRecordings ?? [],
+    [noRecordings],
+  );
+
   const recordingParams = useMemo(
     () => ({
       before: currentTimeRange.before,
@@ -603,16 +616,16 @@ export default function MotionSearchView({
   }, [selectedRangeIdx, chunkedTimeRange]);
 
   const updateSelectedSegment = useCallback(
-    (nextTime: number, updateStartTime: boolean) => {
+    (nextTime: number) => {
       const index = chunkedTimeRange.findIndex(
         (segment) => segment.after <= nextTime && segment.before >= nextTime,
       );
 
       if (index != -1) {
-        if (updateStartTime) {
-          setPlaybackStart(nextTime);
-        }
-
+        setPlaybackStart(nextTime);
+        // the outgoing chunk's player runs until the new source replaces
+        // it, reporting old positions while the new chunk loads
+        mainControllerRef.current?.pause();
         setSelectedRangeIdx(index);
       }
     },
@@ -626,7 +639,10 @@ export default function MotionSearchView({
         currentTime > currentTimeRange.before + 60 ||
         currentTime < currentTimeRange.after - 60
       ) {
-        updateSelectedSegment(currentTime, false);
+        // the player rebuilds its source against playbackStart, and a
+        // stale anchor resolves to no startPosition, dropping playback
+        // at the start of the hour instead of the drag target
+        updateSelectedSegment(currentTime);
         return;
       }
 
@@ -666,9 +682,12 @@ export default function MotionSearchView({
           currentTimeRange.after <= currentTime &&
           currentTimeRange.before >= currentTime
         ) {
+          // a source reload mid-seek resumes from playbackStart, so the
+          // anchor has to follow explicit seeks
+          setPlaybackStart(currentTime);
           mainControllerRef.current?.seekToTimestamp(currentTime, true);
         } else {
-          updateSelectedSegment(currentTime, true);
+          updateSelectedSegment(currentTime);
         }
       } else if (playerTime != currentTime) {
         mainControllerRef.current?.play();
@@ -688,9 +707,12 @@ export default function MotionSearchView({
       setCurrentTime(time);
 
       if (currentTimeRange.after <= time && currentTimeRange.before >= time) {
+        // a source reload mid-seek resumes from playbackStart, so the
+        // anchor has to follow explicit seeks
+        setPlaybackStart(time);
         mainControllerRef.current?.seekToTimestamp(time, play);
       } else {
-        updateSelectedSegment(time, true);
+        updateSelectedSegment(time);
       }
     },
     [currentTimeRange, updateSelectedSegment],
@@ -769,6 +791,34 @@ export default function MotionSearchView({
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [cancelMotionSearchJobViaBeacon]);
+
+  const handleBack = useCallback(() => {
+    if (onBack) {
+      onBack();
+    } else {
+      navigate(-1);
+    }
+  }, [navigate, onBack]);
+
+  // Dismissing the entry dialog (escape / click outside) before a search has
+  // run leaves nothing behind it, so cancel the flow instead of revealing an
+  // empty page.
+  const handleSearchDialogOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (
+        !nextOpen &&
+        !isSearching &&
+        !hasSearched &&
+        searchResults.length === 0
+      ) {
+        handleBack();
+        return;
+      }
+
+      setIsSearchDialogOpen(nextOpen);
+    },
+    [handleBack, hasSearched, isSearching, searchResults.length],
+  );
 
   const handleNewSearch = useCallback(() => {
     if (jobId && jobCamera) {
@@ -1026,11 +1076,11 @@ export default function MotionSearchView({
           showHandlebar={true}
           handlebarTime={currentTime}
           setHandlebarTime={setCurrentTime}
-          events={[]}
-          motion_events={motionData ?? []}
-          noRecordingRanges={noRecordings ?? []}
+          events={NO_REVIEW_EVENTS}
+          motion_events={timelineMotionEvents}
+          noRecordingRanges={timelineNoRecordings}
           contentRef={contentRef}
-          onHandlebarDraggingChange={(dragging) => setScrubbing(dragging)}
+          onHandlebarDraggingChange={setScrubbing}
           showExportHandles={
             (exportMode === "timeline" || exportMode === "timeline_multi") &&
             Boolean(exportRange)
@@ -1238,7 +1288,7 @@ export default function MotionSearchView({
         <Toaster closeButton={true} position="top-center" />
         <MotionSearchDialog
           open={isSearchDialogOpen}
-          onOpenChange={setIsSearchDialogOpen}
+          onOpenChange={handleSearchDialogOpenChange}
           config={config}
           cameras={cameras}
           selectedCamera={selectedCamera}
@@ -1276,7 +1326,7 @@ export default function MotionSearchView({
                 className="flex items-center gap-2.5 rounded-lg"
                 aria-label={t("label.back", { ns: "common" })}
                 size="sm"
-                onClick={() => (onBack ? onBack() : navigate(-1))}
+                onClick={handleBack}
               >
                 <IoMdArrowRoundBack className="size-5 text-secondary-foreground" />
                 {isDesktop && (
@@ -1316,6 +1366,7 @@ export default function MotionSearchView({
                   camera={selectedCamera}
                   currentTime={currentTime}
                   latestTime={timeRange.before}
+                  earliestTime={timeRange.after}
                   mode={exportMode}
                   range={exportRange}
                   showPreview={showExportPreview}
@@ -1436,6 +1487,7 @@ export default function MotionSearchView({
               camera={selectedCamera}
               currentTime={currentTime}
               latestTime={timeRange.before}
+              earliestTime={timeRange.after}
               mode={exportMode}
               range={exportRange}
               showPreview={showExportPreview}
@@ -1461,7 +1513,7 @@ export default function MotionSearchView({
               isDesktop
                 ? mainCameraAspect === "tall"
                   ? "mr-2 h-full min-h-0 min-w-0 flex-1 items-center"
-                  : "mr-2 h-full min-h-0 min-w-0 flex-1"
+                  : "mx-2 h-full min-h-0 min-w-0 flex-1"
                 : mainCameraAspect === "tall"
                   ? "flex-1 portrait:h-[40dvh] portrait:max-h-[40dvh] portrait:flex-shrink-0 portrait:flex-grow-0 portrait:basis-auto portrait:items-center portrait:justify-center"
                   : "flex-1 portrait:max-h-[40dvh] portrait:flex-shrink-0 portrait:flex-grow-0 portrait:basis-auto landscape:items-center landscape:justify-center",

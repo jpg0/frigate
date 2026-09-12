@@ -6,9 +6,10 @@ import logging
 import os
 import queue
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from multiprocessing.synchronize import Event as MpEvent
-from typing import Any, Callable
+from typing import Any
 
 from py_vapid import Vapid01
 from pywebpush import WebPusher
@@ -54,6 +55,7 @@ class WebPushClient(Communicator):
             c.name: 0  # type: ignore[misc]
             for c in self.config.cameras.values()
         }
+        self.suspension_broadcaster: Callable[[str, Any, bool], None] | None = None
         self.last_camera_notification_time: dict[str, float] = {
             c.name: 0  # type: ignore[misc]
             for c in self.config.cameras.values()
@@ -61,10 +63,8 @@ class WebPushClient(Communicator):
         self.last_notification_time: float = 0
         self.user_cameras: dict[str, set[str]] = {}
         self.notification_queue: queue.Queue[PushNotification] = queue.Queue()
-        self.notification_thread = threading.Thread(
-            target=self._process_notifications, daemon=True
-        )
-        self.notification_thread.start()
+        self.notification_thread: threading.Thread | None = None
+        self.suspension_thread: threading.Thread | None = None
 
         if not self.config.notifications.email:
             logger.warning("Email must be provided for push notifications to be sent.")
@@ -83,13 +83,25 @@ class WebPushClient(Communicator):
         # notification and auth config updater
         self.global_config_subscriber = ConfigSubscriber("config/")
         self.config_subscriber = CameraConfigUpdateSubscriber(
-            self.config, self.config.cameras, [CameraConfigUpdateEnum.notifications]
+            self.config,
+            self.config.cameras,
+            [CameraConfigUpdateEnum.add, CameraConfigUpdateEnum.notifications],
         )
         self._refresh_user_cameras()
 
     def subscribe(self, receiver: Callable) -> None:
         """Wrapper for allowing dispatcher to subscribe."""
         pass
+
+    def start(self) -> None:
+        self.notification_thread = threading.Thread(
+            target=self._process_notifications, daemon=True
+        )
+        self.notification_thread.start()
+        self.suspension_thread = threading.Thread(
+            target=self._process_suspensions, daemon=True
+        )
+        self.suspension_thread.start()
 
     def check_registrations(self) -> None:
         # check for valid claim or create new one
@@ -163,6 +175,27 @@ class WebPushClient(Communicator):
     def is_camera_suspended(self, camera: str) -> bool:
         return datetime.datetime.now().timestamp() <= self.suspended_cameras[camera]
 
+    def set_suspension_broadcaster(
+        self, broadcaster: Callable[[str, Any, bool], None]
+    ) -> None:
+        """Register the callback used to broadcast suspension state changes."""
+        self.suspension_broadcaster = broadcaster
+
+    def _process_suspensions(self) -> None:
+        while not self.stop_event.wait(1):
+            self._clear_expired_suspensions()
+
+    def _clear_expired_suspensions(self) -> None:
+        """Reset and broadcast cameras whose suspension window has elapsed."""
+        now = datetime.datetime.now().timestamp()
+        for camera, suspended_until in list(self.suspended_cameras.items()):
+            if suspended_until and now > suspended_until:
+                self.unsuspend_notifications(camera)
+                if self.suspension_broadcaster is not None:
+                    self.suspension_broadcaster(
+                        f"{camera}/notifications/suspended", "0", True
+                    )
+
     def publish(self, topic: str, payload: Any, retain: bool = False) -> None:
         """Wrapper for publishing when client is in valid state."""
         # check for updated global config (notifications, auth)
@@ -186,10 +219,14 @@ class WebPushClient(Communicator):
                 self.suspended_cameras[camera] = 0
                 self.last_camera_notification_time[camera] = 0
 
+            self._refresh_user_cameras()
+
         if topic == "reviews":
             decoded = json.loads(payload)
             camera = decoded["before"]["camera"]
-            if not self.config.cameras[camera].notifications.enabled:
+            camera_config = self.config.cameras.get(camera)
+
+            if camera_config is None or not camera_config.notifications.enabled:
                 return
             if self.is_camera_suspended(camera):
                 logger.debug(f"Notifications for {camera} are currently suspended.")
@@ -203,13 +240,14 @@ class WebPushClient(Communicator):
 
             # ensure notifications are enabled and the specific trigger has
             # notification action enabled
+            camera_config = self.config.cameras.get(camera)
+
             if (
-                not self.config.cameras[camera].notifications.enabled
-                or name not in self.config.cameras[camera].semantic_search.triggers
+                camera_config is None
+                or not camera_config.notifications.enabled
+                or name not in camera_config.semantic_search.triggers
                 or "notification"
-                not in self.config.cameras[camera]
-                .semantic_search.triggers[name]
-                .actions
+                not in camera_config.semantic_search.triggers[name].actions
             ):
                 return
 
@@ -220,7 +258,9 @@ class WebPushClient(Communicator):
         elif topic == "camera_monitoring":
             decoded = json.loads(payload)
             camera = decoded["camera"]
-            if not self.config.cameras[camera].notifications.enabled:
+            camera_config = self.config.cameras.get(camera)
+
+            if camera_config is None or not camera_config.notifications.enabled:
                 return
             if self.is_camera_suspended(camera):
                 logger.debug(f"Notifications for {camera} are currently suspended.")
@@ -390,6 +430,7 @@ class WebPushClient(Communicator):
         # Don't notify if message is an update and important fields don't have an update
         if (
             state == "update"
+            and payload["before"]["severity"] == payload["after"]["severity"]
             and len(payload["before"]["data"]["objects"])
             == len(payload["after"]["data"]["objects"])
             and len(payload["before"]["data"]["zones"])
@@ -571,4 +612,5 @@ class WebPushClient(Communicator):
 
     def stop(self) -> None:
         logger.info("Closing notification queue")
-        self.notification_thread.join()
+        if self.notification_thread is not None:
+            self.notification_thread.join()

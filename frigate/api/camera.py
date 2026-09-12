@@ -25,6 +25,7 @@ from frigate.api.auth import (
     require_go2rtc_stream_access,
     require_role,
 )
+from frigate.api.config_util import swap_runtime_config
 from frigate.api.defs.request.app_body import CameraSetBody
 from frigate.api.defs.tags import Tags
 from frigate.config import FrigateConfig
@@ -32,7 +33,7 @@ from frigate.config.camera.updater import (
     CameraConfigUpdateEnum,
     CameraConfigUpdateTopic,
 )
-from frigate.config.env import substitute_frigate_vars
+from frigate.config.env import UnknownVariableError, substitute_frigate_vars
 from frigate.models import User
 from frigate.util.builtin import clean_camera_user_pass, get_record_segment_time
 from frigate.util.camera_cleanup import cleanup_camera_db, cleanup_camera_files
@@ -74,7 +75,7 @@ def _is_valid_host(host: str) -> bool:
 
 @router.get("/go2rtc/streams", dependencies=[Depends(allow_any_authenticated())])
 async def go2rtc_streams(request: Request):
-    r = requests.get("http://127.0.0.1:1984/api/streams")
+    r = await asyncio.to_thread(requests.get, "http://127.0.0.1:1984/api/streams")
     if not r.ok:
         logger.error("Failed to fetch streams from go2rtc")
         return JSONResponse(
@@ -147,12 +148,25 @@ def go2rtc_camera_stream(request: Request, stream_name: str):
 )
 def go2rtc_add_stream(request: Request, stream_name: str, src: str = ""):
     """Add or update a go2rtc stream configuration."""
+    if src and is_restricted_go2rtc_source(src):
+        logger.warning(
+            "Rejected go2rtc stream '%s' with restricted source type (echo/expr/exec)",
+            stream_name,
+        )
+        return JSONResponse(
+            content={
+                "success": False,
+                "message": "Restricted stream source type",
+            },
+            status_code=400,
+        )
+
     try:
         params = {"name": stream_name}
         if src:
             try:
                 resolved_src = substitute_frigate_vars(src)
-            except KeyError:
+            except UnknownVariableError:
                 resolved_src = src
 
             if is_restricted_go2rtc_source(resolved_src):
@@ -288,7 +302,9 @@ def ffprobe(request: Request, paths: str = "", detailed: bool = False):
                     stderr_decoded = str(ffprobe.stderr)
 
             stderr_lines = [
-                line.strip() for line in stderr_decoded.split("\n") if line.strip()
+                clean_camera_user_pass(line.strip())
+                for line in stderr_decoded.split("\n")
+                if line.strip()
             ]
 
             result = {
@@ -637,6 +653,32 @@ async def _connect_onvif_camera(
     raise first_error
 
 
+def _supports_continuous_pan_tilt(nodes) -> bool:
+    """Whether any PTZ node advertises continuous pan/tilt velocity.
+
+    The web UI's directional controls issue ContinuousMove with a PanTilt
+    velocity, so continuous pan/tilt is what makes those controls usable. This
+    is intentionally narrower than ptz_supported, which is true for any device
+    exposing the ONVIF PTZ service - including zoom/focus-only varifocal lenses.
+    """
+    for node in nodes or []:
+        spaces = getattr(node, "SupportedPTZSpaces", None) or (
+            node.get("SupportedPTZSpaces") if isinstance(node, dict) else None
+        )
+        if spaces is None:
+            continue
+
+        continuous = getattr(spaces, "ContinuousPanTiltVelocitySpace", None) or (
+            spaces.get("ContinuousPanTiltVelocitySpace")
+            if isinstance(spaces, dict)
+            else None
+        )
+        if continuous:
+            return True
+
+    return False
+
+
 @router.get(
     "/onvif/probe",
     dependencies=[Depends(require_role(["admin"]))],
@@ -794,6 +836,7 @@ async def onvif_probe(
 
         # Check PTZ support and capabilities
         ptz_supported = False
+        pan_tilt_supported = False
         presets_count = 0
         autotrack_supported = False
 
@@ -826,6 +869,15 @@ async def onvif_probe(
                 except Exception as e:
                     logger.debug(f"Failed to get presets: {e}")
                     presets_count = 0
+
+            # Check for real (continuous) pan/tilt, which the UI controls need
+            if ptz_supported:
+                try:
+                    nodes = await ptz_service.GetNodes()
+                    pan_tilt_supported = _supports_continuous_pan_tilt(nodes)
+                    logger.debug(f"Continuous pan/tilt supported: {pan_tilt_supported}")
+                except Exception as e:
+                    logger.debug(f"Failed to read PTZ nodes for pan/tilt support: {e}")
 
             # Check for autotracking support - requires both FOV relative movement and MoveStatus
             if ptz_supported and first_profile_token and ptz_config_token:
@@ -946,6 +998,7 @@ async def onvif_probe(
             "firmware_version": device_info["firmware_version"],
             "profiles_count": profiles_count,
             "ptz_supported": ptz_supported,
+            "pan_tilt_supported": pan_tilt_supported,
             "presets_count": presets_count,
             "autotrack_supported": autotrack_supported,
         }
@@ -1174,14 +1227,14 @@ async def delete_camera(
 
     try:
         with lock:
-            with open(config_file, "r") as f:
+            with open(config_file) as f:
                 old_raw_config = f.read()
 
             try:
                 yaml = YAML()
                 yaml.indent(mapping=2, sequence=4, offset=2)
 
-                with open(config_file, "r") as f:
+                with open(config_file) as f:
                     data = yaml.load(f)
 
                 # Remove camera from config
@@ -1210,7 +1263,7 @@ async def delete_camera(
                 with open(config_file, "w") as f:
                     yaml.dump(data, f)
 
-                with open(config_file, "r") as f:
+                with open(config_file) as f:
                     new_raw_config = f.read()
 
                 try:
@@ -1241,9 +1294,17 @@ async def delete_camera(
                     status_code=500,
                 )
 
-            # Update runtime config
-            request.app.frigate_config = config
-            request.app.genai_manager.update_config(config)
+            # rebind every collaborator to the new config and re-layer runtime
+            # toggles for the surviving cameras, same as /api/config/set
+            swap_runtime_config(request.app, config)
+
+            # drop the deleted camera's persisted overrides so a camera later
+            # added under the same name doesn't inherit them
+            if request.app.dispatcher is not None:
+                request.app.dispatcher.clear_runtime_state_for_camera(camera_name)
+
+            if request.app.notice_registry is not None:
+                request.app.notice_registry.resolve_camera(camera_name)
 
             # Publish removal to stop ffmpeg processes and clean up runtime state
             request.app.config_publisher.publish_update(
@@ -1272,7 +1333,8 @@ async def delete_camera(
 
     # Best-effort go2rtc stream removal
     try:
-        requests.delete(
+        await asyncio.to_thread(
+            requests.delete,
             "http://127.0.0.1:1984/api/streams",
             params={"src": camera_name},
             timeout=5,
@@ -1308,7 +1370,45 @@ def camera_set(
     body: CameraSetBody,
     sub_command: str | None = None,
 ):
-    """Set a camera feature state. Use camera_name='*' to target all cameras."""
+    """Set a camera feature state. Use camera_name='*' to target all cameras.
+
+    The value to set is sent in the request body as `{"value": "<value>"}`.
+
+    | Feature | Accepted values |
+    | --- | --- |
+    | `enabled` | `ON`, `OFF` |
+    | `detect` | `ON`, `OFF` |
+    | `motion` | `ON`, `OFF` |
+    | `recordings` | `ON`, `OFF` |
+    | `snapshots` | `ON`, `OFF` |
+    | `audio` | `ON`, `OFF` |
+    | `audio_transcription` | `ON`, `OFF` |
+    | `notifications` | `ON`, `OFF` |
+    | `review_alerts` | `ON`, `OFF` |
+    | `review_detections` | `ON`, `OFF` |
+    | `object_descriptions` | `ON`, `OFF` |
+    | `review_descriptions` | `ON`, `OFF` |
+    | `improve_contrast` | `ON`, `OFF` |
+    | `ptz_autotracker` | `ON`, `OFF` |
+    | `birdseye` | `ON`, `OFF` |
+    | `birdseye_modes` | `CONTINUOUS`, `MOTION`, `ALL_OBJECTS`, `ALERTS`, `DETECTIONS`, `NONE`, or a comma-separated combination |
+    | `motion_contour_area` | integer |
+    | `motion_threshold` | integer |
+    | `motion_mask` | `ON`, `OFF` |
+    | `object_mask` | `ON`, `OFF` |
+    | `zone` | `ON`, `OFF` |
+    | `profile` | a profile name, or `none` to deactivate |
+
+    `motion_mask`, `object_mask`, and `zone` require the `sub_command` path
+    parameter to be set to the name of the mask or zone. All other features
+    reject a sub-command.
+
+    `profile` applies globally rather than per camera, so it requires
+    `camera_name` to be `*`.
+
+    These features map to the equivalent MQTT topics, which document the
+    behavior of each value in more detail.
+    """
     dispatcher = request.app.dispatcher
     frigate_config: FrigateConfig = request.app.frigate_config
 

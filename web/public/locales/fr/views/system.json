@@ -105,14 +105,9 @@
       },
       "npuUsage": "Utilisation NPU",
       "npuMemory": "Mémoire NPU",
-      "intelGpuWarning": {
-        "title": "Avertissement relatif aux statistiques du GPU Intel",
-        "message": "Statistiques du GPU non disponibles",
-        "description": "Il s'agit d'un bug connu de l'outil de statistiques GPU d'Intel (intel_gpu_top) : il peut afficher à tort une utilisation de 0 %, même lorsque l'accélération matérielle et la détection d'objets fonctionnent correctement sur l'iGPU. Ce problème ne vient pas de Frigate. Vous pouvez redémarrer l'hôte pour rétablir temporairement l'affichage et confirmer le fonctionnement du GPU. Les performances ne sont pas affectées."
-      },
       "gpuTemperature": "Température du GPU",
       "npuTemperature": "Température du NPU",
-      "gpuCompute": "Calcul / Encodage GPU"
+      "gpuCompute": "Calcul GPU / Encodage"
     },
     "otherProcesses": {
       "title": "Autres processus",
@@ -122,7 +117,7 @@
         "go2rtc": "go2rtc",
         "recording": "enregistrement",
         "review_segment": "Segment d'activité",
-        "embeddings": "embeddings",
+        "embeddings": "intégrations",
         "audio_detector": "détecteur audio"
       }
     }
@@ -173,7 +168,20 @@
       "error": "Erreur : {{error}}",
       "codec": "Codec :",
       "video": "Vidéo :",
-      "aspectRatio": "rapport d'aspect"
+      "aspectRatio": "rapport d'aspect",
+      "keyframes": {
+        "title": "Analyse par image clef",
+        "analyzing": "Analyse des images clefs... {{seconds}} secondes restantes",
+        "stillAnalyzing": "Analyse des images clefs toujours en cours ...",
+        "recordStream": "Flux d'enregistrement :",
+        "keyframeCount": "Images clefs observées :",
+        "observedDuration": "Durée observée :",
+        "gap": "Écart en images clefs (min / moy / max) :",
+        "segmentLength": "Durée du segment d'enregistrement :",
+        "ok": "Images clefs chaque ~{{seconds}}s, convient à l'enregistrement et au visionnement.",
+        "unknown": "Impossible de déterminer l'espacement en images clefs.",
+        "recordDisabled": "L'enregistrement est désactivé pour cette caméra."
+      }
     },
     "framesAndDetections": "Images / Détections",
     "label": {
@@ -196,7 +204,7 @@
     "overview": "Vue d'ensemble",
     "toast": {
       "success": {
-        "copyToClipboard": "Données de la sonde copiées dans le presse-papiers"
+        "copyToClipboard": "Données de la sonde copiées dans le presse-papiers."
       },
       "error": {
         "unableToProbeCamera": "Impossible d'interroger la caméra : {{errorMessage}}"
@@ -212,6 +220,9 @@
       "expectedFps": "IPS attendues",
       "reconnectsLastHour": "Reconnexions (dernière heure)",
       "stallsLastHour": "Baisses de qualité (dernière heure)"
+    },
+    "noCameras": {
+      "title": "Aucune caméra trouvée"
     }
   },
   "lastRefreshed": "Dernier rafraichissement : ",
@@ -223,7 +234,6 @@
     "cameraIsOffline": "{{camera}} est hors ligne",
     "detectIsSlow": "{{detect}} est lent ({{speed}} ms)",
     "detectIsVerySlow": "{{detect}} est très lent ({{speed}} ms)",
-    "shmTooLow": "L'allocation /dev/shm ({{total}} Mo) devrait être augmentée à au moins {{min}} Mo.",
     "debugReplayActive": "Session de relecture de débogage active"
   },
   "enrichments": {

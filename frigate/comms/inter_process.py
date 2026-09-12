@@ -3,8 +3,9 @@
 import logging
 import multiprocessing as mp
 import threading
+from collections.abc import Callable
 from multiprocessing.synchronize import Event as MpEvent
-from typing import Any, Callable
+from typing import Any
 
 import zmq
 
@@ -17,10 +18,13 @@ SOCKET_REP_REQ = "ipc:///tmp/cache/comms"
 
 class InterProcessCommunicator(Communicator):
     def __init__(self) -> None:
+        # bound eagerly so subprocesses starting before start_communicators()
+        # can still connect; their requests queue in zmq until the reader runs
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
         self.socket.bind(SOCKET_REP_REQ)
         self.stop_event: MpEvent = mp.Event()
+        self.reader_thread: threading.Thread | None = None
 
     def publish(self, topic: str, payload: Any, retain: bool = False) -> None:
         """There is no communication back to the processes."""
@@ -28,6 +32,8 @@ class InterProcessCommunicator(Communicator):
 
     def subscribe(self, receiver: Callable) -> None:
         self._dispatcher = receiver
+
+    def start(self) -> None:
         self.reader_thread = threading.Thread(target=self.read)
         self.reader_thread.start()
 
@@ -60,7 +66,8 @@ class InterProcessCommunicator(Communicator):
 
     def stop(self) -> None:
         self.stop_event.set()
-        self.reader_thread.join()
+        if self.reader_thread is not None:
+            self.reader_thread.join()
         self.socket.close(linger=0)
         self.context.destroy(linger=0)
 

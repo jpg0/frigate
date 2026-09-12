@@ -22,7 +22,9 @@ The following ports are available to access the Frigate web UI.
 
 ## Onboarding
 
-On startup, an admin user and password are generated and printed in the logs. It is recommended to set a new password for the admin account after logging in for the first time under Settings > Users.
+On startup, an admin user and password are generated and printed in the logs. It is recommended to set a new password for the admin account after logging in for the first time.
+
+On a new install the [setup wizard](../guides/getting_started.md#configuring-frigate) offers this as its first step, along with creating accounts for anyone else who needs access. You can also do both at any time under <NavPath path="Settings > Users" />.
 
 ## Resetting admin password
 
@@ -91,7 +93,7 @@ auth:
 
 ## Session Length
 
-The default session length for user authentication in Frigate is 24 hours. This setting determines how long a user's authenticated session remains active before a token refresh is required — otherwise, the user will need to log in again.
+The default session length for user authentication in Frigate is 24 hours. This setting determines how long a user's authenticated session remains active before a token refresh is required. Otherwise, the user will need to log in again.
 
 While the default provides a balance of security and convenience, you can customize this duration to suit your specific security requirements and user experience preferences. The session length is configured in seconds.
 
@@ -141,7 +143,7 @@ Changing the secret will invalidate current tokens.
 
 ## Proxy configuration
 
-Frigate can be configured to leverage features of common upstream authentication proxies such as Authelia, Authentik, oauth2_proxy, or traefik-forward-auth.
+Frigate can be configured to leverage features of common upstream authentication proxies such as Authelia, Authentik, oauth2_proxy, or traefik-forward-auth. Frigate does not implement OIDC, SAML, or LDAP natively; as an NVR focused on recording and object detection, it relies on robust, battle-tested proxies to handle those protocols and passes the authenticated user and role through via headers (see below).
 
 If you are leveraging the authentication of an upstream proxy, you likely want to disable Frigate's authentication as there is no correspondence between users in Frigate's database and users authenticated via the proxy. Optionally, if communication between the reverse proxy and Frigate is over an untrusted network, you should set an `auth_secret` in the `proxy` config and configure the proxy to send the secret value as a header named `X-Proxy-Secret`. Assuming this is an untrusted network, you will also want to [configure a real TLS certificate](tls.md) to ensure the traffic can't simply be sniffed to steal the secret.
 
@@ -214,9 +216,9 @@ A default role can be provided. Any value in the mapped `role` header will overr
 
 Navigate to <NavPath path="Settings > System > Proxy" /> and set the default role.
 
-| Field            | Description                                                   |
-| ---------------- | ------------------------------------------------------------- |
-| **Default role** | Fallback role when no role header is present (e.g., `viewer`) |
+| Field            | Description                                                                                          |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| **Default role** | Fallback role when no role header is present (e.g., `viewer`), or `None (deny access)` to reject unmapped users |
 
 </TabItem>
 <TabItem value="yaml">
@@ -229,6 +231,14 @@ proxy:
 
 </TabItem>
 </ConfigTabs>
+
+Setting `default_role` to `none` denies access instead of falling back to a role. Any proxy-authenticated user whose headers do not match an explicit `role_map` entry receives a 403 response. This is useful when the upstream proxy authenticates a broader set of users than should reach Frigate, so that only mapped groups are allowed in.
+
+```yaml
+proxy:
+  ...
+  default_role: none
+```
 
 ## Role mapping
 
@@ -255,12 +265,25 @@ In this example:
 - If the proxy passes a role header containing `sysadmins` or `access-level-security`, the user is assigned the `admin` role.
 - If the proxy passes a role header containing `camera-viewer`, the user is assigned the `viewer` role.
 - If the proxy passes a role header containing `operators`, the user is assigned the `operator` custom role.
-- If no mapping matches, Frigate falls back to `default_role` if configured.
+- If no mapping matches, Frigate falls back to `default_role` if configured, or denies access if `default_role` is `none`.
 - If `role_map` is not defined, Frigate assumes the role header directly contains `admin`, `viewer`, or a custom role name.
 
 **Note on matching semantics:**
 
 - Admin precedence: if the `admin` mapping matches, Frigate resolves the session to `admin` to avoid accidental downgrade when a user belongs to multiple groups (for example both `admin` and `viewer` groups).
+
+:::note
+
+If a user isn't getting the role you expect, enable debug logging to see exactly what headers Frigate is receiving from your proxy:
+
+```yaml
+logger:
+  default: info
+  logs:
+    frigate.api.auth: debug
+```
+
+:::
 
 #### Port Considerations
 
@@ -316,7 +339,7 @@ Frigate supports user roles to control access to certain features in the UI and 
 
 - **admin**: Full access to all features, including user management and configuration.
 - **viewer**: Read-only access to the UI and API, including viewing cameras, review items, and historical footage. Configuration editor and settings in the UI are inaccessible.
-- **Custom Roles**: Arbitrary role names (alphanumeric, dots/underscores) with specific camera permissions. These extend the system for granular access (e.g., "operator" for select cameras).
+- **Custom Roles**: Arbitrary role names (alphanumeric, dots/underscores) with specific camera permissions. These extend the system for granular access (e.g., "operator" for select cameras). The names `admin`, `viewer`, and `none` are reserved and cannot be used.
 
 ### Custom Roles and Camera Access
 

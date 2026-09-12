@@ -6,15 +6,19 @@ import os
 import sys
 import threading
 from collections import deque
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from enum import Enum
 from functools import wraps
 from logging.handlers import QueueHandler, QueueListener
 from multiprocessing.managers import SyncManager
 from queue import Empty, Queue
-from typing import Any, Callable, Deque, Generator, Optional
+from typing import Any, TypeVar, cast
 
 from frigate.util.builtin import clean_camera_user_pass
+
+# lets a decorator keep the signature of the function it wraps
+_F = TypeVar("_F", bound=Callable[..., Any])
 
 LOG_HANDLER = logging.StreamHandler()
 LOG_HANDLER.setFormatter(
@@ -47,8 +51,8 @@ class LogLevel(str, Enum):
     critical = "critical"
 
 
-log_listener: Optional[QueueListener] = None
-log_queue: Optional[Queue] = None
+log_listener: QueueListener | None = None
+log_queue: Queue | None = None
 
 
 def setup_logging(manager: SyncManager) -> None:
@@ -118,7 +122,7 @@ class LogPipe(threading.Thread):
         super().__init__(daemon=False)
         self.logger = logging.getLogger(log_name)
         self.level = level
-        self.deque: Deque[str] = deque(maxlen=100)
+        self.deque: deque[str] = deque(maxlen=100)
         self.fdRead, self.fdWrite = os.pipe()
         self.pipeReader = os.fdopen(self.fdRead)
         self.start()
@@ -241,10 +245,10 @@ def __redirect_fd_to_queue(queue: Queue[str]) -> Generator[None, None, None]:
             pass
 
 
-def redirect_output_to_logger(logger: logging.Logger, level: int) -> Any:
+def redirect_output_to_logger(logger: logging.Logger, level: int) -> Callable[[_F], _F]:
     """Decorator to redirect both Python sys.stdout/stderr and C-level stdout to logger."""
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: _F) -> _F:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             queue: Queue[str] = Queue()
@@ -274,7 +278,7 @@ def redirect_output_to_logger(logger: logging.Logger, level: int) -> Any:
 
             return result
 
-        return wrapper
+        return cast(_F, wrapper)
 
     return decorator
 

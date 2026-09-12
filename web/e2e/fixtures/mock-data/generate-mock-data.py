@@ -102,13 +102,26 @@ def generate_config():
         snapshot = config.model_dump()
 
     # Runtime-computed fields not in the Pydantic dump
-    all_attrs = set()
-    for attrs in snapshot.get("model", {}).get("attributes_map", {}).values():
-        all_attrs.update(attrs)
-    snapshot["model"]["all_attributes"] = sorted(all_attrs)
-    snapshot["model"]["colormap"] = {}
+    for model in snapshot.get("models", []):
+        all_attrs = set()
+        for attrs in model.get("attributes_map", {}).values():
+            all_attrs.update(attrs)
+        model["all_attributes"] = sorted(all_attrs)
+        model["colormap"] = {}
 
     return snapshot
+
+
+def generate_config_schema():
+    """Generate the JSON Schema for FrigateConfig from the backend model.
+
+    This is what the app fetches from /api/config/schema.json to drive the
+    RJSF-based config form. Generating it here keeps the e2e fixture in sync
+    with the backend whenever config models change.
+    """
+    from frigate.config import FrigateConfig
+
+    return FrigateConfig.model_json_schema()
 
 
 def generate_reviews():
@@ -411,6 +424,7 @@ def main():
     print()
 
     write_json("config-snapshot.json", generate_config())
+    write_json("config-schema.json", generate_config_schema())
     write_json("reviews.json", generate_reviews())
     write_json("events.json", generate_events())
     write_json("exports.json", generate_exports())

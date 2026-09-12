@@ -34,12 +34,12 @@
   },
   "submitFrigatePlus": {
     "title": "Да се изпрати ли този кадър към Frigate+?",
-    "submit": "Изпрати"
+    "submit": "Изпрати",
+    "previewError": "Не можe да се зареди предварителен преглед на моментната снимка. Записът може да не е наличен в момента."
   },
   "noPreviewFound": "Не е намерен предварителен преглед",
   "noRecordingsFoundForThisTime": "За това време не са намерени записи",
   "livePlayerRequiredIOSVersion": "За този тип поток на живо се изисква iOS 17.1 или по-нова версия.",
-  "cameraDisabled": "Камерата е изключена",
   "toast": {
     "success": {
       "submittedFrigatePlus": "Успешно изпратен кадър към Frigate+"
@@ -47,5 +47,6 @@
     "error": {
       "submitFrigatePlusFailed": "Неуспешно изпратен кадър към Frigate+"
     }
-  }
+  },
+  "cameraOff": "Камерата е изключена"
 }

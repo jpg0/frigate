@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { Event } from "@/types/event";
 import { resolveZoneName } from "@/hooks/use-zone-friendly-name";
+import { getPrimaryModel } from "@/utils/modelUtil";
 
 // Use a small tolerance (10ms) for browsers with seek precision by-design issues
 const TOLERANCE = 0.01;
@@ -127,8 +128,12 @@ export default function ObjectTrackOverlay({
     },
   );
 
-  const getZonesFriendlyNames = (zones: string[], config: FrigateConfig) => {
-    return zones?.map((zone) => resolveZoneName(config, zone)) ?? [];
+  const getZonesFriendlyNames = (
+    zones: string[],
+    config: FrigateConfig,
+    cameraId?: string,
+  ) => {
+    return zones?.map((zone) => resolveZoneName(config, zone, cameraId)) ?? [];
   };
 
   const timelineResults = useMemo(() => {
@@ -151,7 +156,7 @@ export default function ObjectTrackOverlay({
         data: {
           ...event.data,
           zones_friendly_names: config
-            ? getZonesFriendlyNames(event.data?.zones, config)
+            ? getZonesFriendlyNames(event.data?.zones, config, event.camera)
             : [],
         },
       }));
@@ -174,7 +179,7 @@ export default function ObjectTrackOverlay({
 
   const getObjectColor = useCallback(
     (label: string, objectId: string) => {
-      const objectColor = config?.model?.colormap[label];
+      const objectColor = getPrimaryModel(config)?.colormap?.[label];
       if (objectColor) {
         const reversed = [...objectColor].reverse();
         return `rgb(${reversed.join(",")})`;

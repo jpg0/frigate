@@ -7,15 +7,58 @@ import ConfigTabs from "@site/src/components/ConfigTabs";
 import TabItem from "@theme/TabItem";
 import NavPath from "@site/src/components/NavPath";
 
-Frigate can be configured through the **Settings UI** or by editing the YAML configuration file directly. The Settings UI is the recommended approach — it provides validation and a guided experience for all configuration options.
+Frigate can be configured through the **Settings UI** or by editing the YAML configuration file directly. The Settings UI is the recommended approach. It provides validation and a guided experience for all configuration options.
 
-It is recommended to start with a minimal configuration and add to it as described in [the getting started guide](../guides/getting_started.md).
+## Using the Settings UI
+
+The Settings UI groups every configuration option into sections that are listed in the left-hand menu. Each section presents a guided form with validation, so you don't need to remember the structure of the YAML or look up option names by hand.
+
+### Global vs. camera-level configuration
+
+Settings are organized into two scopes:
+
+- **Global configuration**: values under <NavPath path="Settings > Global configuration" /> apply to every camera by default. This is where you set the baseline behavior for object detection, recording, snapshots, motion, and so on.
+- **Camera configuration**: values under <NavPath path="Settings > Camera configuration" /> apply to a single camera. Use the camera selector button at the top of these pages to choose which camera you are editing.
+
+When a camera-level section is left untouched, the camera simply inherits the global values. Changing a value on a camera page **overrides** the global value for that camera only: the global setting and every other camera are unaffected. This mirrors how the YAML works, where a value set under `cameras.<name>` takes precedence over the same value set at the top level. See [Global and Camera-Level Configuration](./config_overrides.md) for the full details, including how lists and maps are handled and which settings must be enabled globally first.
+
+To undo an override and go back to inheriting from the parent scope, use the reset button at the bottom of the section:
+
+- On a camera section, the button is labeled **Reset to Global** and restores the camera to the global value.
+- On a global section, the button is labeled **Reset to Default** and restores Frigate's built-in default.
+
+Resetting asks for confirmation and cannot be undone once applied.
+
+### Saving changes and the Save All button
+
+Edits are not applied until you save them. As soon as you change a value, the UI tracks it as a pending change:
+
+- The edited section shows a **Modified** badge, and the changed fields are highlighted.
+- A **You have unsaved changes** notice appears above the section's **Save** and **Undo** buttons. **Save** commits just that section; **Undo** discards its pending edits.
+
+Because pending changes can span multiple sections (and multiple cameras), the header provides a **Save All** button that writes every pending change at once. Next to it, **Review pending changes** opens a summary that lists each pending edit with its scope (Global or a specific camera), the affected field, and the new value, so you can confirm exactly what will be written before committing. **Undo All** discards every pending change across all sections.
+
+### Restart-required indicators
+
+Most settings take effect immediately, but some require Frigate to restart before they apply. Fields that require a restart are marked with a small restart icon and a **Restart required** tooltip next to the field label.
+
+When you save a change that touches one of these fields, Frigate confirms the save and reminds you that a restart is needed (for example, _"Settings saved successfully. Restart Frigate to apply your changes."_). The notification includes a one-click **Restart Frigate** action so you can apply the change right away, or you can continue editing and restart later.
+
+### The colored dots in the camera configuration menu
+
+When you are working under <NavPath path="Settings > Camera configuration" />, small colored dots can appear next to a section's name in the menu. They give you an at-a-glance summary of that section's state for the selected camera:
+
+- **Blue dot**: this section **overrides the global configuration**. One or more values in the section have been set specifically for this camera and differ from the global defaults.
+- **Profile-colored dot**: when you are viewing a [camera profile](./profiles.md), a dot in that profile's assigned color indicates the section is **overridden by that profile**. Each profile is given its own distinct color so you can tell at a glance which sections it changes.
+- **Amber dot**: this section has **unsaved changes**. It appears alongside the **Modified** badge whenever you have pending edits in the section that haven't been saved yet.
+
+Hover over any dot to see a tooltip describing what it means. Open a section to see exactly which fields are overridden: the section header indicates how many fields differ from the global (or base) configuration.
 
 ## Configuration File Location
 
-For users who prefer to edit the YAML configuration file directly:
+For users who prefer to edit the YAML configuration file directly, it is recommended to start with a minimal configuration and add to it as described in [the getting started guide](../guides/getting_started.md).
 
-- **Home Assistant App:** `/addon_configs/<addon_directory>/config.yml` — see [directory list](#accessing-app-config-dir)
+- **Home Assistant App:** `/addon_configs/<addon_directory>/config.yml` (see [directory list](#accessing-app-config-dir))
 - **All other installations:** Map to `/config/config.yml` inside the container
 
 It can be named `config.yml` or `config.yaml`, but if both files exist `config.yml` will be preferred and `config.yaml` will be ignored.
@@ -57,7 +100,7 @@ VS Code supports JSON schemas for automatically validating configuration files. 
 
 ## Environment Variable Substitution
 
-Frigate supports the use of environment variables starting with `FRIGATE_` **only** where specifically indicated in the [reference config](./advanced/reference.md). For example, the following values can be replaced at runtime by using environment variables:
+Frigate supports the use of environment variables starting with `FRIGATE_` **only** where specifically indicated in the [reference config](./advanced/reference.md). See [substitution sources and precedence](./advanced/system.md#substitution-sources-and-precedence) for where those values can come from, including `secrets.yaml`. For example, the following values can be replaced at runtime by using environment variables:
 
 ```yaml
 mqtt:
@@ -87,7 +130,8 @@ go2rtc:
 
 ```yaml
 genai:
-  api_key: "{FRIGATE_GENAI_API_KEY}"
+  my_provider:
+    api_key: "{FRIGATE_GENAI_API_KEY}"
 ```
 
 ## Common configuration examples
@@ -110,7 +154,7 @@ Here are some common starter configuration examples. These can be configured thr
 
 1. Navigate to <NavPath path="Settings > System > MQTT" /> and configure the MQTT connection to your Home Assistant Mosquitto broker
 2. Navigate to <NavPath path="Settings > Global configuration > FFmpeg" /> and set **Hardware acceleration arguments** to `Raspberry Pi (H.264)`
-3. Navigate to <NavPath path="Settings > System > Detectors and model" /> and add a detector with **Type** `EdgeTPU` and **Device** `usb`
+3. Navigate to <NavPath path="Settings > System > Detection models" /> and select **Coral EdgeTPU (USB)** from the **Hardware** dropdown
 4. Navigate to <NavPath path="Settings > Global configuration > Recording" /> and set **Enable recording** to on, **Motion retention > Retention days** to `7`, **Alert retention > Event retention > Retention days** to `30`, **Alert retention > Event retention > Retention mode** to `motion`, **Detection retention > Event retention > Retention days** to `30`, **Detection retention > Event retention > Retention mode** to `motion`
 5. Navigate to <NavPath path="Settings > Global configuration > Snapshots" /> and set **Enable snapshots** to on, **Snapshot retention > Default retention** to `30`
 6. Navigate to <NavPath path="Settings > Global configuration > Camera management" /> and add your camera with the appropriate RTSP stream URL
@@ -128,10 +172,9 @@ mqtt:
 ffmpeg:
   hwaccel_args: preset-rpi-64-h264
 
-detectors:
-  coral:
-    type: edgetpu
-    device: usb
+models:
+  - devices:
+      - edgetpu:usb
 
 record:
   enabled: True
@@ -189,7 +232,7 @@ cameras:
 
 1. Navigate to <NavPath path="Settings > System > MQTT" /> and set **Enable MQTT** to off
 2. Navigate to <NavPath path="Settings > Global configuration > FFmpeg" /> and set **Hardware acceleration arguments** to `VAAPI (Intel/AMD GPU)`
-3. Navigate to <NavPath path="Settings > System > Detectors and model" /> and add a detector with **Type** `EdgeTPU` and **Device** `usb`
+3. Navigate to <NavPath path="Settings > System > Detection models" /> and select **Coral EdgeTPU (USB)** from the **Hardware** dropdown
 4. Navigate to <NavPath path="Settings > Global configuration > Recording" /> and set **Enable recording** to on, **Motion retention > Retention days** to `7`, **Alert retention > Event retention > Retention days** to `30`, **Alert retention > Event retention > Retention mode** to `motion`, **Detection retention > Event retention > Retention days** to `30`, **Detection retention > Event retention > Retention mode** to `motion`
 5. Navigate to <NavPath path="Settings > Global configuration > Snapshots" /> and set **Enable snapshots** to on, **Snapshot retention > Default retention** to `30`
 6. Navigate to <NavPath path="Settings > Global configuration > Camera management" /> and add your camera with the appropriate RTSP stream URL
@@ -205,10 +248,9 @@ mqtt:
 ffmpeg:
   hwaccel_args: preset-vaapi
 
-detectors:
-  coral:
-    type: edgetpu
-    device: usb
+models:
+  - devices:
+      - edgetpu:usb
 
 record:
   enabled: True
@@ -266,8 +308,8 @@ cameras:
 
 1. Navigate to <NavPath path="Settings > System > MQTT" /> and configure the connection to your MQTT broker
 2. Navigate to <NavPath path="Settings > Global configuration > FFmpeg" /> and set **Hardware acceleration arguments** to `VAAPI (Intel/AMD GPU)`
-3. Navigate to <NavPath path="Settings > System > Detectors and model" /> and add a detector with **Type** `openvino` and **Device** `AUTO`
-4. On the same page, in the **Custom Model** tab, configure the OpenVINO model path and settings
+3. Navigate to <NavPath path="Settings > System > Detection models" /> and select **Intel GPU** from the **Hardware** dropdown
+4. On the same model, open the **Custom Model** tab and configure the OpenVINO model path and settings
 5. Navigate to <NavPath path="Settings > Global configuration > Recording" /> and set **Enable recording** to on, **Motion retention > Retention days** to `7`, **Alert retention > Event retention > Retention days** to `30`, **Alert retention > Event retention > Retention mode** to `motion`, **Detection retention > Event retention > Retention days** to `30`, **Detection retention > Event retention > Retention mode** to `motion`
 6. Navigate to <NavPath path="Settings > Global configuration > Snapshots" /> and set **Enable snapshots** to on, **Snapshot retention > Default retention** to `30`
 7. Navigate to <NavPath path="Settings > Global configuration > Camera management" /> and add your camera with the appropriate RTSP stream URL
@@ -285,15 +327,12 @@ mqtt:
 ffmpeg:
   hwaccel_args: preset-vaapi
 
-detectors:
-  ov:
-    type: openvino
-    device: AUTO
-
-model:
-  width: 300
-  height: 300
-  input_tensor: nhwc
+models:
+  - devices:
+      - openvino:AUTO
+    width: 300
+    height: 300
+    input_tensor: nhwc
   input_pixel_format: bgr
   path: /openvino-model/ssdlite_mobilenet_v2.xml
   labelmap_path: /openvino-model/coco_91cl_bkgr.txt

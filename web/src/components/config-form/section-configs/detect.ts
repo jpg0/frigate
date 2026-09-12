@@ -15,6 +15,7 @@ const detect: SectionConfigOverrides = {
     fieldMessages: [
       {
         key: "detect-resolution-not-multiple-of-four",
+        health: true,
         field: "width",
         position: "before",
         messageKey: "configMessages.detect.resolutionShouldBeMultipleOfFour",
@@ -46,6 +47,7 @@ const detect: SectionConfigOverrides = {
       },
       {
         key: "detect-resolution-high",
+        health: true,
         field: "width",
         position: "before",
         messageKey: "configMessages.detect.resolutionHigh",
@@ -61,6 +63,7 @@ const detect: SectionConfigOverrides = {
       },
       {
         key: "detect-square-resolution",
+        health: true,
         field: "width",
         position: "before",
         messageKey: "configMessages.detect.squareResolution",
@@ -111,11 +114,29 @@ const detect: SectionConfigOverrides = {
         },
       },
       {
+        key: "detect-scene-without-model",
+        health: true,
+        field: "scene",
+        position: "after",
+        messageKey: "configMessages.detect.sceneWithoutModel",
+        severity: "warning",
+        docLink: "/configuration/object_detectors#running-more-than-one-model",
+        condition: (ctx) => {
+          const scene = ctx.formData?.scene as string | undefined;
+          if (!scene || scene === "all") return false;
+          const models = ctx.fullConfig?.models;
+          if (!models) return false;
+          return !models.some((model) => model.scene === scene);
+        },
+      },
+      {
         key: "fps-greater-than-five",
+        health: true,
         field: "fps",
         messageKey: "configMessages.detect.fpsGreaterThanFive",
         severity: "info",
         position: "after",
+        docLink: "/frigate/camera_setup#choosing-a-detect-frame-rate",
         condition: (ctx) => {
           if (ctx.level !== "camera" || !ctx.fullCameraConfig) return false;
           if (ctx.fullCameraConfig.type === "lpr") return false;
@@ -152,6 +173,7 @@ const detect: SectionConfigOverrides = {
     ],
     fieldOrder: [
       "enabled",
+      "scene",
       "width",
       "height",
       "fps",
@@ -168,6 +190,18 @@ const detect: SectionConfigOverrides = {
       resolution: ["width", "height", "fps"],
       tracking: ["min_initialized", "max_disappeared"],
     },
+    uiSchema: {
+      scene: {
+        "ui:options": {
+          enumI18nPrefix: "detectionModels.scenes",
+        },
+      },
+      annotation_offset: {
+        "ui:options": {
+          signed: true,
+        },
+      },
+    },
     hiddenFields: ["enabled_in_config"],
     advancedFields: [
       "min_initialized",
@@ -178,6 +212,7 @@ const detect: SectionConfigOverrides = {
   },
   global: {
     restartRequired: [
+      "scene",
       "fps",
       "width",
       "height",
@@ -187,6 +222,7 @@ const detect: SectionConfigOverrides = {
   },
   camera: {
     restartRequired: [
+      "scene",
       "fps",
       "width",
       "height",
@@ -203,6 +239,7 @@ const detect: SectionConfigOverrides = {
     hiddenFields: [
       "enabled",
       "enabled_in_config",
+      "scene",
       "min_initialized",
       "max_disappeared",
       "annotation_offset",

@@ -51,15 +51,6 @@
       "12hour": "MM/dd h:mm:ssa",
       "24hour": "d MMM HH:mm:ss"
     },
-    "formattedTimestampExcludeSeconds": {
-      "12hour": "%b %-d, %I:%M %p",
-      "24hour": "%b %-d, %H:%M"
-    },
-    "formattedTimestampWithYear": {
-      "12hour": "%b %-d %Y, %I:%M %p",
-      "24hour": "%b %-d %Y, %H:%M"
-    },
-    "formattedTimestampOnlyMonthAndDay": "%b %-d",
     "second_one": "{{time}} sekunda",
     "second_few": "{{time}} sekundy",
     "second_many": "{{time}} sekund",
@@ -167,7 +158,8 @@
     "saveAll": "Zapisz wszystkie",
     "savingAll": "Zapisywanie wszystkich…",
     "undoAll": "Cofnij wszystko",
-    "retry": "Powtórz"
+    "retry": "Powtórz",
+    "resetToGlobal": "Przywróć ustawienie globalne"
   },
   "menu": {
     "system": "System",
@@ -220,7 +212,8 @@
       "ur": "اردو (Urdu)",
       "hr": "Hrvatski (Chorwacki)",
       "zhHant": "繁體中文 (Chiński Tradycyjny)",
-      "bs": "Bosanski (Bośniacki)"
+      "bs": "Bosanski (Bośniacki)",
+      "be": "Беларуская (Białoruski)"
     },
     "appearance": "Wygląd",
     "darkMode": {
@@ -236,7 +229,6 @@
       "label": "Motyw",
       "blue": "Niebieski",
       "green": "Zielony",
-      "contrast": "Wysoki kontrast",
       "default": "Domyślny",
       "red": "Czerwony",
       "nord": "Nordycki",
@@ -274,7 +266,10 @@
     "settings": "Ustawienia",
     "export": "Eksportuj",
     "classification": "Klasyfikacja",
-    "profiles": "Profile"
+    "profiles": "Profile",
+    "actions": "Akcje",
+    "features": "Funkcje",
+    "chat": "Czat"
   },
   "role": {
     "viewer": "Przeglądający",
@@ -328,5 +323,10 @@
   "field": {
     "optional": "Opcjonalny",
     "internalID": "Wewnętrzny identyfikator używany przez Frigate w konfiguracji i bazie danych"
+  },
+  "no_items": "Brak elementów",
+  "validation_errors": "Błędy walidacji",
+  "credentialField": {
+    "savedPlaceholder": "Zapisano — pozostaw puste, aby zachować bieżącą wartość"
   }
 }

@@ -33,13 +33,13 @@
   "noPreviewFound": "Попередній перегляд не знайдені",
   "submitFrigatePlus": {
     "title": "Відправити це зображення Frigate+?",
-    "submit": "Посилати"
+    "submit": "Посилати",
+    "previewError": "Не вдалося завантажити прев'ю. Запис може бути наразі недоступним."
   },
   "streamOffline": {
     "title": "Струм офлайн",
     "desc": "Потік <code>detect</code > камери {{cameraName}} не отримував ніяких кадрів, перевірте журнал помилок"
   },
-  "cameraDisabled": "Камера вимкнена",
   "toast": {
     "success": {
       "submittedFrigatePlus": "Зображення успішно завантажено до Frigate+"
@@ -47,5 +47,6 @@
     "error": {
       "submitFrigatePlusFailed": "Не вдалося надіслати фрейм Frigate+"
     }
-  }
+  },
+  "cameraOff": "Камера вимкнена"
 }

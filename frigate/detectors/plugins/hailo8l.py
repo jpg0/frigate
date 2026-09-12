@@ -4,12 +4,11 @@ import subprocess
 import threading
 import urllib.request
 from functools import partial
-from typing import Dict, List, Optional, Tuple
+from typing import Literal
 
 import cv2
 import numpy as np
 from pydantic import ConfigDict, Field
-from typing_extensions import Literal
 
 from frigate.const import MODEL_CACHE_DIR
 from frigate.detectors.detection_api import DetectionApi
@@ -17,6 +16,14 @@ from frigate.detectors.detector_config import (
     BaseDetectorConfig,
 )
 from frigate.object_detection.util import RequestStore, ResponseStore
+from frigate.util.runtime_deps import (
+    ArchiveDest,
+    ArchiveMapping,
+    Artifact,
+    ArtifactKind,
+    RuntimeManifest,
+    find_tool,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +60,58 @@ H8L_DEFAULT_MODEL = "yolov6n.hef"
 H8_DEFAULT_URL = "https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v2.14.0/hailo8/yolov6n.hef"
 H8L_DEFAULT_URL = "https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v2.14.0/hailo8l/yolov6n.hef"
 
+# HailoRT is installed at first start rather than shipped in the image. The
+# tarball carries libhailort and hailortcli, the wheel the python bindings.
+HAILORT_VERSION = "4.21.0"
+HAILORT_RELEASE = (
+    f"https://github.com/frigate-nvr/hailort/releases/download/v{HAILORT_VERSION}"
+)
+HAILORT_MAPPINGS = (
+    ArchiveMapping("rootfs/usr/local/lib/", ArchiveDest.lib),
+    ArchiveMapping("rootfs/usr/local/bin/", ArchiveDest.bin),
+)
+HAILORT_MANIFEST = RuntimeManifest(
+    name=DETECTOR_KEY,
+    version=HAILORT_VERSION,
+    artifacts=(
+        Artifact(
+            url=f"{HAILORT_RELEASE}/hailort-debian12-amd64.tar.gz",
+            sha256="0a57ac5f7cc8c2c3668133189d9285b55f498e8cb219797e203f6f5015fec4b3",
+            kind=ArtifactKind.archive,
+            mappings=HAILORT_MAPPINGS,
+            machines=("x86_64",),
+        ),
+        Artifact(
+            url=f"{HAILORT_RELEASE}/hailort-debian12-arm64.tar.gz",
+            sha256="dd840548eb5d0d147c99aee2cb013d39d64be09c5bc63061171fcfacf4547b3f",
+            kind=ArtifactKind.archive,
+            mappings=HAILORT_MAPPINGS,
+            machines=("aarch64",),
+        ),
+        Artifact(
+            url=f"{HAILORT_RELEASE}/hailort-{HAILORT_VERSION}-cp311-cp311-linux_x86_64.whl",
+            sha256="8112a973ab48095399b29d883f31987828df5861b8553f614c89f098a67b3fb6",
+            kind=ArtifactKind.wheel,
+            machines=("x86_64",),
+        ),
+        Artifact(
+            url=f"{HAILORT_RELEASE}/hailort-{HAILORT_VERSION}-cp311-cp311-linux_aarch64.whl",
+            sha256="658432a43573280d472f6402d7934669effe7f163ba3dffa31c50bbeeaa7c01d",
+            kind=ArtifactKind.wheel,
+            machines=("aarch64",),
+        ),
+    ),
+    preload=(f"libhailort.so.{HAILORT_VERSION}",),
+    import_check="hailo_platform",
+)
+
 
 def detect_hailo_arch():
     try:
         result = subprocess.run(
-            ["hailortcli", "fw-control", "identify"], capture_output=True, text=True
+            [find_tool("hailortcli"), "fw-control", "identify"],
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             logger.error(f"Inference error: {result.stderr}")
@@ -83,8 +137,8 @@ class HailoAsyncInference:
         input_store: RequestStore,
         output_store: ResponseStore,
         batch_size: int = 1,
-        input_type: Optional[str] = None,
-        output_type: Optional[Dict[str, str]] = None,
+        input_type: str | None = None,
+        output_type: dict[str, str] | None = None,
         send_original_frame: bool = False,
     ) -> None:
         # when importing hailo it activates the driver
@@ -97,7 +151,10 @@ class HailoAsyncInference:
                 VDevice,
             )
         except ModuleNotFoundError:
-            pass
+            raise ImportError(
+                "HailoRT is not installed. Frigate installs it at startup when a "
+                "Hailo detector is configured; check the startup log for errors."
+            ) from None
 
         self.input_store = input_store
         self.output_store = output_store
@@ -125,9 +182,9 @@ class HailoAsyncInference:
     def callback(
         self,
         completion_info,
-        bindings_list: List,
-        input_batch: List,
-        request_ids: List[int],
+        bindings_list: list,
+        input_batch: list,
+        request_ids: list[int],
     ):
         if completion_info.exception:
             logger.error(f"Inference error: {completion_info.exception}")
@@ -163,7 +220,7 @@ class HailoAsyncInference:
             }
         return configured_infer_model.create_bindings(output_buffers=output_buffers)
 
-    def get_input_shape(self) -> Tuple[int, ...]:
+    def get_input_shape(self) -> tuple[int, ...]:
         return self.hef.get_input_vstream_infos()[0].shape
 
     def run(self) -> None:
@@ -203,9 +260,11 @@ class HailoAsyncInference:
 # ----------------- HailoDetector Class ----------------- #
 class HailoDetector(DetectionApi):
     type_key = DETECTOR_KEY
+    runtime_manifest = HAILORT_MANIFEST
 
     def __init__(self, detector_config: "HailoDetectorConfig"):
         global ARCH
+        self.activate_dependencies()
         ARCH = detect_hailo_arch()
         self.cache_dir = MODEL_CACHE_DIR
         self.device_type = detector_config.device
@@ -304,7 +363,7 @@ class HailoDetector(DetectionApi):
             urllib.request.urlretrieve(url, destination)
             logger.debug(f"Downloaded model to {destination}")
         except Exception as e:
-            raise RuntimeError(f"Failed to download model from {url}: {str(e)}")
+            raise RuntimeError(f"Failed to download model from {url}: {str(e)}") from e
 
     def check_and_prepare(self) -> str:
         if not os.path.exists(self.cache_dir):
@@ -350,7 +409,7 @@ class HailoDetector(DetectionApi):
             if not self.inference_thread.is_alive():
                 raise RuntimeError(
                     "HailoRT inference thread has stopped, restart required."
-                )
+                ) from None
 
             return np.zeros((20, 6), dtype=np.float32)
 

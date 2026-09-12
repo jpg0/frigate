@@ -1,10 +1,14 @@
 import os
 from enum import Enum
-from typing import Optional
 
 from pydantic import Field, PrivateAttr, model_validator
 
-from frigate.const import CACHE_DIR, CACHE_SEGMENT_FORMAT, REGEX_CAMERA_NAME
+from frigate.const import (
+    CACHE_DIR,
+    CACHE_SEGMENT_FORMAT,
+    REGEX_CAMERA_NAME,
+    SUB_CACHE_TAG,
+)
 from frigate.ffmpeg_presets import (
     parse_preset_hardware_acceleration_decode,
     parse_preset_hardware_acceleration_scale,
@@ -51,14 +55,14 @@ class CameraTypeEnum(str, Enum):
 
 
 class CameraConfig(FrigateBaseModel):
-    name: Optional[str] = Field(
+    name: str | None = Field(
         None,
         title="Camera name",
         description="Camera name is required",
         pattern=REGEX_CAMERA_NAME,
     )
 
-    friendly_name: Optional[str] = Field(
+    friendly_name: str | None = Field(
         None,
         title="Friendly name",
         description="Camera friendly name used in the Frigate UI",
@@ -100,8 +104,8 @@ class CameraConfig(FrigateBaseModel):
         description="Settings for face detection and recognition for this camera.",
     )
     ffmpeg: CameraFfmpegConfig = Field(
-        title="FFmpeg",
-        description="FFmpeg settings including binary path, args, hwaccel options, and per-role output args.",
+        title="Streams (FFmpeg)",
+        description="Camera stream inputs and FFmpeg options, including binary path, args, hwaccel, and per-role output args.",
     )
     live: CameraLiveConfig = Field(
         default_factory=CameraLiveConfig,
@@ -180,7 +184,7 @@ class CameraConfig(FrigateBaseModel):
         title="Camera UI",
         description="Display ordering and visibility for this camera in the UI. Ordering affects the default dashboard. For more granular control, use camera groups.",
     )
-    webui_url: Optional[str] = Field(
+    webui_url: str | None = Field(
         None,
         title="Camera URL",
         description="URL to visit the camera directly from system page",
@@ -196,7 +200,7 @@ class CameraConfig(FrigateBaseModel):
         title="Zones",
         description="Zones allow you to define a specific area of the frame so you can determine whether or not an object is within a particular area.",
     )
-    enabled_in_config: Optional[bool] = Field(
+    enabled_in_config: bool | None = Field(
         default=None,
         title="Original camera state",
         description="Keep track of original state of camera.",
@@ -216,15 +220,20 @@ class CameraConfig(FrigateBaseModel):
 
         # add roles to the input if there is only one
         if len(config["ffmpeg"]["inputs"]) == 1:
-            has_audio = "audio" in config["ffmpeg"]["inputs"][0].get("roles", [])
+            existing_roles = config["ffmpeg"]["inputs"][0].get("roles", [])
 
             config["ffmpeg"]["inputs"][0]["roles"] = [
                 "record",
                 "detect",
             ]
 
-            if has_audio:
+            if "audio" in existing_roles:
                 config["ffmpeg"]["inputs"][0]["roles"].append("audio")
+
+            # kept so role validation can report the real problem rather than
+            # claiming the role was never assigned
+            if "record_sub" in existing_roles:
+                config["ffmpeg"]["inputs"][0]["roles"].append("record_sub")
 
         super().__init__(**config)
 
@@ -292,6 +301,28 @@ class CameraConfig(FrigateBaseModel):
             ffmpeg_output_args = (
                 record_args
                 + [f"{os.path.join(CACHE_DIR, self.name)}@{CACHE_SEGMENT_FORMAT}.mp4"]
+                + ffmpeg_output_args
+            )
+
+        if (
+            "record_sub" in ffmpeg_input.roles
+            and self.record.enabled
+            and self.record.sub.enabled
+        ):
+            sub_output_args = self.ffmpeg.output_args.effective_record_sub
+            record_args = get_ffmpeg_arg_list(
+                parse_preset_output_record(
+                    sub_output_args,
+                    self.ffmpeg.apple_compatibility,
+                )
+                or sub_output_args
+            )
+
+            ffmpeg_output_args = (
+                record_args
+                + [
+                    f"{os.path.join(CACHE_DIR, self.name)}{SUB_CACHE_TAG}@{CACHE_SEGMENT_FORMAT}.mp4"
+                ]
                 + ffmpeg_output_args
             )
 

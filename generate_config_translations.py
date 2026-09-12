@@ -10,7 +10,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, get_args, get_origin
+from typing import Any, get_args, get_origin
 
 from frigate.config.config import FrigateConfig
 from frigate.util.schema import get_config_schema
@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def get_field_translations(field_info) -> Dict[str, str]:
+def get_field_translations(field_info) -> dict[str, str]:
     """Extract title and description from a Pydantic field."""
     translations = {}
 
@@ -33,8 +33,8 @@ def get_field_translations(field_info) -> Dict[str, str]:
 
 
 def extract_translations_from_schema(
-    schema: Dict[str, Any], defs: Dict[str, Any] = None
-) -> Dict[str, Any]:
+    schema: dict[str, Any], defs: dict[str, Any] = None
+) -> dict[str, Any]:
     """
     Recursively extract translations (titles and descriptions) from a JSON schema.
 
@@ -202,84 +202,12 @@ def extract_translations_from_schema(
     return translations
 
 
-def generate_section_translation(config_class: type) -> Dict[str, Any]:
+def generate_section_translation(config_class: type) -> dict[str, Any]:
     """
     Generate translation structure for a config section using its JSON schema.
     """
     schema = config_class.model_json_schema()
     return extract_translations_from_schema(schema)
-
-
-def get_detector_translations(
-    config_schema: Dict[str, Any],
-) -> tuple[Dict[str, Any], Dict[str, Any], set[str]]:
-    """Build detector type translations with nested fields based on schema definitions.
-
-    Returns a tuple of (type_translations, shared_fields, nested_field_keys).
-    Shared fields (identical across all detector types) are returned separately
-    to avoid duplication in the output.
-    """
-    defs = config_schema.get("$defs", {})
-    detector_schema = defs.get("DetectorConfig", {})
-    discriminator = detector_schema.get("discriminator", {})
-    mapping = discriminator.get("mapping", {})
-
-    # First pass: collect all nested fields per detector type
-    all_nested: Dict[str, Dict[str, Any]] = {}
-    type_meta: Dict[str, Dict[str, str]] = {}
-
-    for detector_type, ref in mapping.items():
-        if not isinstance(ref, str) or not ref.startswith("#/$defs/"):
-            continue
-
-        ref_name = ref.split("/")[-1]
-        ref_schema = defs.get(ref_name, {})
-        if not ref_schema:
-            continue
-
-        meta: Dict[str, str] = {}
-        title = ref_schema.get("title")
-        description = ref_schema.get("description")
-        if title:
-            meta["label"] = title
-        if description:
-            meta["description"] = description
-        type_meta[detector_type] = meta
-
-        nested = extract_translations_from_schema(ref_schema, defs=defs)
-        all_nested[detector_type] = {
-            k: v for k, v in nested.items() if k not in ("label", "description")
-        }
-
-    # Find fields that are identical across all types that have them
-    shared_fields: Dict[str, Any] = {}
-    if all_nested:
-        # Collect all field keys across all types
-        all_keys: set[str] = set()
-        for nested in all_nested.values():
-            all_keys.update(nested.keys())
-
-        for key in all_keys:
-            values = [nested[key] for nested in all_nested.values() if key in nested]
-            if len(values) == len(all_nested) and all(v == values[0] for v in values):
-                shared_fields[key] = values[0]
-
-    # Build per-type translations with only unique (non-shared) fields
-    type_translations: Dict[str, Any] = {}
-    nested_field_keys: set[str] = set()
-    for detector_type, nested in all_nested.items():
-        type_entry: Dict[str, Any] = {}
-        type_entry.update(type_meta.get(detector_type, {}))
-
-        unique_fields = {k: v for k, v in nested.items() if k not in shared_fields}
-        if unique_fields:
-            type_entry.update(unique_fields)
-            nested_field_keys.update(unique_fields.keys())
-
-        if type_entry:
-            type_translations[detector_type] = type_entry
-
-    return type_translations, shared_fields, nested_field_keys
 
 
 def main():
@@ -337,6 +265,12 @@ def main():
             if args and len(args) > 1:
                 field_type = args[1]  # Get value type from Dict[key, value]
 
+        # Handle List[SomeModel] - extract the item type
+        if origin is list:
+            args = get_args(field_type)
+            if args:
+                field_type = args[0]
+
         # Start with field's top-level metadata (label, description)
         section_data = get_field_translations(field_info)
 
@@ -350,19 +284,6 @@ def main():
                 k: v for k, v in nested.items() if k not in ("label", "description")
             }
             section_data.update(nested_without_root)
-
-        if field_name == "detectors":
-            detector_types, shared_fields, detector_field_keys = (
-                get_detector_translations(config_schema)
-            )
-            # Add shared fields at the base detectors level
-            section_data.update(shared_fields)
-            # Add per-type translations (only unique fields per type)
-            section_data.update(detector_types)
-            for key in detector_field_keys:
-                if key == "type":
-                    continue
-                section_data.pop(key, None)
 
         if field_name == "objects":
             # Produce a parallel `filters_attribute` block alongside `filters`,
@@ -387,7 +308,7 @@ def main():
                 # doesn't capture the attribute-specific semantics. Keys
                 # match the FilterConfig field name; values are partial
                 # overrides applied AFTER the generic rewrites.
-                attribute_field_overrides: Dict[str, Dict[str, str]] = {
+                attribute_field_overrides: dict[str, dict[str, str]] = {
                     "min_score": {
                         "description": (
                             "Minimum single-frame detection confidence required "
@@ -401,7 +322,7 @@ def main():
                         text = text.replace(source, replacement)
                     return text
 
-                attribute_variant: Dict[str, Any] = {}
+                attribute_variant: dict[str, Any] = {}
                 for key, value in filters_block.items():
                     if key in ("label", "description"):
                         if isinstance(value, str):
@@ -409,7 +330,7 @@ def main():
                         continue
                     if not isinstance(value, dict):
                         continue
-                    field_trans: Dict[str, str] = {}
+                    field_trans: dict[str, str] = {}
                     if isinstance(value.get("label"), str):
                         field_trans["label"] = rewrite(value["label"])
                     if isinstance(value.get("description"), str):

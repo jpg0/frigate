@@ -42,15 +42,6 @@
       "12hour": "MM月dd日 ah:mm:ss",
       "24hour": "MM月dd日 HH:mm:ss"
     },
-    "formattedTimestampExcludeSeconds": {
-      "12hour": "%m月%-d日 %I:%M %p",
-      "24hour": "%m月%-d日 %H:%M"
-    },
-    "formattedTimestampWithYear": {
-      "12hour": "%Y年%m月%-d日 %I:%M:%S %p",
-      "24hour": "%Y年%m月%-d日 %H:%M"
-    },
-    "formattedTimestampOnlyMonthAndDay": "%m月%-d日",
     "formattedTimestampHourMinute": {
       "12hour": "a h:mm",
       "24hour": "HH:mm"
@@ -223,7 +214,8 @@
       "ur": "乌尔都语 (اردو)",
       "hr": "克罗地亚语 (Hrvatski)",
       "bs": "波斯尼亚语（Bosanski）",
-      "zhHant": "繁体中文 (Traditional Chinese)"
+      "zhHant": "繁体中文 (Traditional Chinese)",
+      "be": "白俄罗斯语（Беларуская）"
     },
     "appearance": "外观",
     "darkMode": {
@@ -239,9 +231,8 @@
       "label": "主题",
       "blue": "蓝色",
       "green": "绿色",
-      "nord": "Nord",
+      "nord": "极地蓝",
       "red": "红色",
-      "contrast": "高对比度",
       "default": "默认",
       "highcontrast": "高对比"
     },

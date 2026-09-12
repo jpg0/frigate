@@ -7,7 +7,7 @@ import threading
 import time
 from multiprocessing.managers import DictProxy
 from multiprocessing.synchronize import Event as MpEvent
-from typing import Any, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -210,7 +210,11 @@ class AudioEventMaintainer(threading.Thread):
         # per-camera stop signal so a single maintainer can be torn down at
         # runtime (e.g. on camera removal) without stopping the whole process
         self.camera_stop_event = threading.Event()
-        self.detector = AudioTfl(stop_event, self.camera_config.audio.num_threads)
+        self.detector = AudioTfl(
+            stop_event,
+            self.camera_config.audio.num_threads,
+            self.camera_config.audio.labelmap,
+        )
         self.shape = (int(round(AUDIO_DURATION * AUDIO_SAMPLE_RATE)),)
         self.chunk_size = int(round(AUDIO_DURATION * AUDIO_SAMPLE_RATE * 2))
         self.logger = logging.getLogger(f"audio.{self.camera_config.name}")
@@ -272,7 +276,7 @@ class AudioEventMaintainer(threading.Thread):
         self.camera_metrics[self.camera_config.name].audio_rms.value = rms
         self.camera_metrics[self.camera_config.name].audio_dBFS.value = dBFS
 
-        audio_detections: list[Tuple[str, float]] = []
+        audio_detections: list[tuple[str, float]] = []
 
         # only run audio detection when volume is above min_volume
         if rms >= self.camera_config.audio.min_volume:
@@ -323,7 +327,7 @@ class AudioEventMaintainer(threading.Thread):
             else:
                 self.transcription_processor.check_unload_model()
 
-    def calculate_audio_levels(self, audio_as_float: np.ndarray) -> Tuple[float, float]:
+    def calculate_audio_levels(self, audio_as_float: np.ndarray) -> tuple[float, float]:
         # Calculate RMS (Root-Mean-Square) which represents the average signal amplitude
         # Note: np.float32 isn't serializable, we must use np.float64 to publish the message
         rms = np.sqrt(np.mean(np.absolute(np.square(audio_as_float))))
@@ -392,7 +396,10 @@ class AudioEventMaintainer(threading.Thread):
 
         while not self.stop_event.is_set() and not self.camera_stop_event.is_set():
             # check if there is an updated config
-            self.config_subscriber.check_for_updates()
+            updated_topics = self.config_subscriber.check_for_updates()
+
+            if CameraConfigUpdateEnum.audio.name in updated_topics:
+                self.detector.update_labelmap(self.camera_config.audio.labelmap)
 
             enabled = self.camera_config.enabled
             if enabled != self.was_enabled:
@@ -451,10 +458,17 @@ class AudioEventMaintainer(threading.Thread):
 
 
 class AudioTfl:
-    def __init__(self, stop_event: threading.Event, num_threads: int = 2) -> None:
+    def __init__(
+        self,
+        stop_event: threading.Event,
+        num_threads: int = 2,
+        labelmap: dict[int, str] | None = None,
+    ) -> None:
         self.stop_event = stop_event
         self.num_threads = num_threads
-        self.labels = load_labels("/audio-labelmap.txt", prefill=521)
+        self._default_labels = load_labels("/audio-labelmap.txt", prefill=521)
+        self.labels: dict[int, str] = {}
+        self.update_labelmap(labelmap or {})
         # Suppress TFLite delegate creation messages that bypass Python logging
         with suppress_stderr_during("tflite_interpreter_init"):
             self.interpreter = Interpreter(
@@ -465,6 +479,10 @@ class AudioTfl:
 
         self.tensor_input_details = self.interpreter.get_input_details()
         self.tensor_output_details = self.interpreter.get_output_details()
+
+    def update_labelmap(self, labelmap: dict[int, str]) -> None:
+        """Merge configured label overrides into the default audio labelmap."""
+        self.labels = {**self._default_labels, **labelmap}
 
     def _detect_raw(self, tensor_input: np.ndarray) -> np.ndarray:
         self.interpreter.set_tensor(self.tensor_input_details[0]["index"], tensor_input)
@@ -504,10 +522,14 @@ class AudioTfl:
 
         raw_detections = self._detect_raw(tensor_input)
 
+        detected_labels: set[str] = set()
+
         for d in raw_detections:
             if d[1] < threshold:
                 break
-            detections.append(
-                (self.labels[int(d[0])], float(d[1]), (d[2], d[3], d[4], d[5]))
-            )
+            label = self.labels[int(d[0])]
+            if label in detected_labels:
+                continue
+            detected_labels.add(label)
+            detections.append((label, float(d[1]), (d[2], d[3], d[4], d[5])))
         return detections

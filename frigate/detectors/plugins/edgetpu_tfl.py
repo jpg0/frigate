@@ -1,14 +1,15 @@
 import logging
 import math
 import os
+from typing import ClassVar, Literal
 
 import cv2
 import numpy as np
 from pydantic import ConfigDict, Field
-from typing_extensions import Literal
 
 from frigate.detectors.detection_api import DetectionApi
 from frigate.detectors.detector_config import BaseDetectorConfig, ModelTypeEnum
+from frigate.util.model import xyxy_to_xywh_for_nms
 
 try:
     from tflite_runtime.interpreter import Interpreter, load_delegate
@@ -26,6 +27,9 @@ class EdgeTpuDetectorConfig(BaseDetectorConfig):
     model_config = ConfigDict(
         title="EdgeTPU",
     )
+
+    # a TPU can only be opened by one process
+    shareable: ClassVar[bool] = False
 
     type: Literal[DETECTOR_KEY]
     device: str = Field(
@@ -297,7 +301,7 @@ class EdgeTpuTfl(DetectionApi):
             # until after filtering out redundant boxes
             # Shift the logit scores to be non-negative (required by cv2)
             indices = cv2.dnn.NMSBoxes(
-                bboxes=boxes_filtered_decoded,
+                bboxes=xyxy_to_xywh_for_nms(boxes_filtered_decoded),
                 scores=max_scores_filtered_shiftedpositive,
                 score_threshold=(
                     self.min_logit_value + self.logit_shift_to_positive_values

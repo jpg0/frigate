@@ -1,11 +1,16 @@
 from enum import Enum
-from typing import Optional, Union
 
 from pydantic import Field, field_validator
 
 from ..base import FrigateBaseModel
 
-__all__ = ["ReviewConfig", "DetectionsConfig", "AlertsConfig", "ImageSourceEnum"]
+__all__ = [
+    "ReviewConfig",
+    "DetectionsConfig",
+    "AlertsConfig",
+    "ImageSourceEnum",
+    "ReviewResponseStyleEnum",
+]
 
 
 class ImageSourceEnum(str, Enum):
@@ -13,6 +18,15 @@ class ImageSourceEnum(str, Enum):
 
     preview = "preview"
     recordings = "recordings"
+
+
+class ReviewResponseStyleEnum(str, Enum):
+    """Writing style presets for GenAI review descriptions."""
+
+    default = "default"
+    natural = "natural"
+    concise = "concise"
+    detailed = "detailed"
 
 
 DEFAULT_ALERT_OBJECTS = ["person", "car"]
@@ -32,13 +46,13 @@ class AlertsConfig(FrigateBaseModel):
         title="Alert labels",
         description="List of object labels that qualify as alerts (for example: car, person).",
     )
-    required_zones: Union[str, list[str]] = Field(
+    required_zones: str | list[str] = Field(
         default_factory=list,
         title="Required zones",
         description="Zones that an object must enter to be considered an alert; leave empty to allow any zone.",
     )
 
-    enabled_in_config: Optional[bool] = Field(
+    enabled_in_config: bool | None = Field(
         default=None,
         title="Original alerts state",
         description="Tracks whether alerts were originally enabled in the static configuration.",
@@ -67,12 +81,12 @@ class DetectionsConfig(FrigateBaseModel):
         description="Enable or disable detection events for all cameras; can be overridden per-camera.",
     )
 
-    labels: Optional[list[str]] = Field(
+    labels: list[str] | None = Field(
         default=None,
         title="Detection labels",
         description="List of object labels that qualify as detection events.",
     )
-    required_zones: Union[str, list[str]] = Field(
+    required_zones: str | list[str] = Field(
         default_factory=list,
         title="Required zones",
         description="Zones that an object must enter to be considered a detection; leave empty to allow any zone.",
@@ -83,7 +97,7 @@ class DetectionsConfig(FrigateBaseModel):
         description="Seconds to wait after no detection-causing activity before cutting off a detection.",
     )
 
-    enabled_in_config: Optional[bool] = Field(
+    enabled_in_config: bool | None = Field(
         default=None,
         title="Original detections state",
         description="Tracks whether detections were originally enabled in the static configuration.",
@@ -129,7 +143,7 @@ class GenAIReviewConfig(FrigateBaseModel):
         title="Save thumbnails",
         description="Save thumbnails that are sent to the GenAI provider for debugging and review.",
     )
-    enabled_in_config: Optional[bool] = Field(
+    enabled_in_config: bool | None = Field(
         default=None,
         title="Original GenAI state",
         description="Tracks whether GenAI review was originally enabled in the static configuration.",
@@ -138,6 +152,11 @@ class GenAIReviewConfig(FrigateBaseModel):
         title="Preferred language",
         description="Preferred language to request from the GenAI provider for generated responses.",
         default=None,
+    )
+    response_style: ReviewResponseStyleEnum = Field(
+        default=ReviewResponseStyleEnum.default,
+        title="Response style",
+        description="Writing style preset for generated review descriptions. Presets adjust the tone and level of detail of the user-facing title, summary, and scene description; 'default' leaves the built-in prompt unchanged.",
     )
     activity_context_prompt: str = Field(
         default="""### Normal Activity Indicators (Level 0)

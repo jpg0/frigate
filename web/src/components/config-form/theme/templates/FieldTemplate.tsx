@@ -168,11 +168,7 @@ export function FieldTemplate(props: FieldTemplateProps) {
     (!isArrayItemInAdditionalProp || showArrayItemDescription) &&
     !suppressDescription;
 
-  const translationPath = buildTranslationPath(
-    pathSegments,
-    sectionI18nPrefix,
-    formContext,
-  );
+  const translationPath = buildTranslationPath(pathSegments, formContext);
   const fieldPath = fieldPathId.path;
   const overrides = formContext?.overrides;
   const baselineFormData = formContext?.baselineFormData;
@@ -406,6 +402,8 @@ export function FieldTemplate(props: FieldTemplateProps) {
             key={m.key}
             messageKey={m.messageKey}
             severity={m.severity}
+            values={m.values}
+            docLink={m.docLink}
           />
         ))}
       </div>
@@ -418,6 +416,8 @@ export function FieldTemplate(props: FieldTemplateProps) {
             key={m.key}
             messageKey={m.messageKey}
             severity={m.severity}
+            values={m.values}
+            docLink={m.docLink}
           />
         ))}
       </div>

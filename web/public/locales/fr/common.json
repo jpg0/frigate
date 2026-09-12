@@ -50,15 +50,6 @@
       "12hour": "d MMM HH:mm:ss",
       "24hour": "d MMM HH:mm:ss"
     },
-    "formattedTimestampWithYear": {
-      "24hour": "%b %-d %Y, %H:%M",
-      "12hour": "%b %-d %Y, %I:%M %p"
-    },
-    "formattedTimestampOnlyMonthAndDay": "%b %-d",
-    "formattedTimestampExcludeSeconds": {
-      "12hour": "%b %-d, %I:%M %p",
-      "24hour": "%b %-d, %H:%M"
-    },
     "formattedTimestamp2": {
       "12hour": "dd/MM HH:mm:ss",
       "24hour": "d MMM HH:mm:ss"
@@ -140,7 +131,7 @@
     "saveAll": "Tout enregistrer",
     "savingAll": "Enregistrement de tout en cours…",
     "undoAll": "Tout annuler",
-    "applying": "Enregistrement…",
+    "applying": "Enregistrement …",
     "retry": "Réessayer"
   },
   "menu": {
@@ -189,7 +180,8 @@
       "id": "Bahasa Indonesia (Indonésien)",
       "ur": "اردو (Ourdou)",
       "hr": "Hrvatski (Croate)",
-      "bs": "Bosanski (Bosnien)"
+      "bs": "Bosanski (Bosnien)",
+      "zhHant": "繁體中文 (chinois traditionnel)"
     },
     "appearance": "Apparence",
     "darkMode": {
@@ -220,7 +212,6 @@
     "help": "Aide",
     "configurationEditor": "Éditeur de configuration",
     "theme": {
-      "contrast": "Contraste élevé",
       "blue": "Bleu",
       "green": "Vert",
       "nord": "Nord",

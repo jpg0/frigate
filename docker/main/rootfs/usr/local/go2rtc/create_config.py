@@ -8,14 +8,17 @@ from typing import Any
 from ruamel.yaml import YAML
 
 sys.path.insert(0, "/opt/frigate")
-from frigate.config.env import substitute_frigate_vars
+from frigate.config.env import apply_config_env_vars, substitute_frigate_vars
 from frigate.const import (
     BIRDSEYE_PIPE,
     LIBAVFORMAT_VERSION_MAJOR,
 )
 from frigate.ffmpeg_presets import parse_preset_hardware_acceleration_encode
 from frigate.util.config import find_config_file, resolve_ffmpeg_path
-from frigate.util.services import is_restricted_go2rtc_source
+from frigate.util.services import (
+    is_go2rtc_arbitrary_exec_allowed,
+    is_restricted_go2rtc_source,
+)
 
 sys.path.remove("/opt/frigate")
 
@@ -33,6 +36,20 @@ try:
         config: dict[str, Any] = json.loads(raw_config)
 except FileNotFoundError:
     config: dict[str, Any] = {}
+
+# No validator runs here, so install environment_vars ourselves. FRIGATE_
+# names only: anything else lands in os.environ, where the exec gate reads
+# GO2RTC_ALLOW_ARBITRARY_EXEC.
+config_env_vars = config.get("environment_vars")
+apply_config_env_vars(
+    {
+        key: value
+        for key, value in config_env_vars.items()
+        if str(key).startswith("FRIGATE_")
+    }
+    if isinstance(config_env_vars, dict)
+    else {}
+)
 
 go2rtc_config: dict[str, Any] = config.get("go2rtc", {})
 
@@ -109,7 +126,7 @@ for name in list(go2rtc_config.get("streams", {})):
                 del go2rtc_config["streams"][name]
                 continue
             go2rtc_config["streams"][name] = formatted_stream
-        except KeyError as e:
+        except ValueError as e:
             print(
                 "[ERROR] Invalid substitution found, see https://docs.frigate.video/configuration/restream#advanced-restream-configurations for more info."
             )
@@ -128,7 +145,7 @@ for name in list(go2rtc_config.get("streams", {})):
                     continue
 
                 filtered_streams.append(formatted_stream)
-            except KeyError as e:
+            except ValueError as e:
                 print(
                     "[ERROR] Invalid substitution found, see https://docs.frigate.video/configuration/restream#advanced-restream-configurations for more info."
                 )
@@ -142,6 +159,20 @@ for name in list(go2rtc_config.get("streams", {})):
                 f"Set GO2RTC_ALLOW_ARBITRARY_EXEC=true to enable arbitrary exec sources."
             )
             del go2rtc_config["streams"][name]
+
+    elif isinstance(stream, dict):
+        # The map form ({"url": ...}) lets go2rtc resolve the source
+        # recursively, so it is effectively a dynamic way to generate the URL
+        # for a stream. That can only be backed by an exec source, so it cannot
+        # be allowed unless arbitrary exec is explicitly enabled. When it is
+        # enabled, leave the map untouched for go2rtc to resolve.
+        if not is_go2rtc_arbitrary_exec_allowed():
+            print(
+                f"[ERROR] Stream '{name}' uses a dynamic source format which is disabled by default for security. "
+                f"Set GO2RTC_ALLOW_ARBITRARY_EXEC=true to enable arbitrary exec sources."
+            )
+            del go2rtc_config["streams"][name]
+            continue
 
 # add birdseye restream stream if enabled
 if config.get("birdseye", {}).get("restream", False):
@@ -158,3 +189,6 @@ if config.get("birdseye", {}).get("restream", False):
 # Write go2rtc_config to /dev/shm/go2rtc.yaml
 with open("/dev/shm/go2rtc.yaml", "w") as f:
     yaml.dump(go2rtc_config, f)
+
+# config contains camera credentials; do not leave it world-readable
+os.chmod("/dev/shm/go2rtc.yaml", 0o640)

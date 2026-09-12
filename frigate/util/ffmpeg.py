@@ -2,7 +2,8 @@
 
 import logging
 import subprocess as sp
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from frigate.const import PROCESS_PRIORITY_LOW
 from frigate.log import LogPipe
@@ -21,6 +22,25 @@ def stop_ffmpeg(ffmpeg_process: sp.Popen[Any], logger: logging.Logger):
         ffmpeg_process.communicate()
         logger.info("FFmpeg has been killed")
     ffmpeg_process = None
+
+
+def terminate_ffmpeg_stream(proc: sp.Popen[Any]) -> None:
+    """Stop an ffmpeg process whose stdout is being read over a pipe."""
+    # Close the read end first so a blocked ffmpeg write unblocks (ffmpeg then
+    # sees a broken pipe), then signal it. The resulting ffmpeg write error is
+    # harmless and goes to the captured stderr.
+    if proc.stdout is not None:
+        try:
+            proc.stdout.close()
+        except OSError:
+            pass
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except sp.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
 
 def start_or_restart_ffmpeg(
@@ -68,9 +88,9 @@ def run_ffmpeg_with_progress(
     cmd: list[str],
     *,
     expected_duration_seconds: float,
-    on_progress: Optional[Callable[[float], None]] = None,
-    stdin_payload: Optional[str] = None,
-    process_started: Optional[Callable[[sp.Popen], None]] = None,
+    on_progress: Callable[[float], None] | None = None,
+    stdin_payload: str | None = None,
+    process_started: Callable[[sp.Popen], None] | None = None,
     use_low_priority: bool = True,
 ) -> tuple[int, str]:
     """Run an ffmpeg command, streaming progress via `-progress pipe:2`.

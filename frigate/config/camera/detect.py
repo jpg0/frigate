@@ -1,6 +1,6 @@
-from typing import Optional
-
 from pydantic import Field, model_validator
+
+from frigate.detectors.detector_config import SceneEnum
 
 from ..base import FrigateBaseModel
 
@@ -8,7 +8,7 @@ __all__ = ["DetectConfig", "StationaryConfig", "StationaryMaxFramesConfig"]
 
 
 class StationaryMaxFramesConfig(FrigateBaseModel):
-    default: Optional[int] = Field(
+    default: int | None = Field(
         default=None,
         title="Default max frames",
         description="Default maximum frames to track a stationary object before stopping.",
@@ -22,13 +22,13 @@ class StationaryMaxFramesConfig(FrigateBaseModel):
 
 
 class StationaryConfig(FrigateBaseModel):
-    interval: Optional[int] = Field(
+    interval: int | None = Field(
         default=None,
         title="Stationary interval",
         description="How often (in frames) to run a detection check to confirm a stationary object.",
         gt=0,
     )
-    threshold: Optional[int] = Field(
+    threshold: int | None = Field(
         default=None,
         title="Stationary threshold",
         description="Number of frames with no position change required to mark an object as stationary.",
@@ -52,28 +52,33 @@ class DetectConfig(FrigateBaseModel):
         title="Enable object detection",
         description="Enable or disable object detection for all cameras; can be overridden per-camera.",
     )
-    height: Optional[int] = Field(
+    height: int | None = Field(
         default=None,
         title="Detect height",
         description="Height (pixels) of frames used for the detect stream; leave empty to use the native stream resolution.",
     )
-    width: Optional[int] = Field(
+    width: int | None = Field(
         default=None,
         title="Detect width",
         description="Width (pixels) of frames used for the detect stream; leave empty to use the native stream resolution.",
+    )
+    scene: SceneEnum = Field(
+        default=SceneEnum.all,
+        title="Detect scene",
+        description="The environment this camera looks at, used to pick which of the configured models runs on it. Cameras left on 'all' run the model configured with a scene of 'all'.",
     )
     fps: int = Field(
         default=5,
         title="Detect FPS",
         description="Desired frames per second to run detection on; lower values reduce CPU usage (recommended value is 5, only set higher - at most 10 - if tracking extremely fast moving objects).",
     )
-    min_initialized: Optional[int] = Field(
+    min_initialized: int | None = Field(
         default=None,
         title="Minimum initialization frames",
         description="Number of consecutive detection hits required before creating a tracked object. Increase to reduce false initializations. Default value is fps divided by 2.",
         ge=2,
     )
-    max_disappeared: Optional[int] = Field(
+    max_disappeared: int | None = Field(
         default=None,
         title="Maximum disappeared frames",
         description="Number of frames without a detection before a tracked object is considered gone.",

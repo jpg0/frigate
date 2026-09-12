@@ -35,8 +35,7 @@
         "audioIsUnavailable": "Zvuk nie je pre tento stream k dispozícii",
         "audio": {
           "tips": {
-            "title": "Zvuk musí byť vyvedený z vašej kamery a nakonfigurovaný v go2rtc pre tento stream.",
-            "document": "Prečítajte si dokumentáciu "
+            "title": "Zvuk musí byť vyvedený z vašej kamery a nakonfigurovaný v go2rtc pre tento stream."
           }
         },
         "stream": "Prúd",
@@ -68,7 +67,10 @@
         }
       },
       "birdseye": "Vtáčie oko"
-    }
+    },
+    "showAll": "Zobraziť všetky skupiny kamier",
+    "showLess": "Zobraziť menej",
+    "editGroups": "Upraviť skupiny kamier"
   },
   "debug": {
     "options": {
@@ -82,6 +84,7 @@
     "zones": "Zóny",
     "mask": "Maska",
     "motion": "Pohyb",
-    "regions": "Kraje"
+    "regions": "Kraje",
+    "paths": "Cesty"
   }
 }

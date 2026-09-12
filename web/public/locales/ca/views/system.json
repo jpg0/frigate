@@ -56,7 +56,6 @@
         "cameras_count_other": "{{count}} Càmeres"
       },
       "empty": "Encara no s'ha capturat cap missatge",
-      "count": "{{count}} missatges",
       "expanded": {
         "payload": "Payload"
       },
@@ -106,11 +105,6 @@
       },
       "npuUsage": "Ús de NPU",
       "npuMemory": "Memòria de NPU",
-      "intelGpuWarning": {
-        "title": "Avís d'estadístiques de la GPU d'Intel",
-        "message": "Estadístiques de GPU no disponibles",
-        "description": "Aquest és un error conegut en les eines d'informació de les estadístiques de GPU d'Intel (intel.gpu.top) on es trencarà i retornarà repetidament un ús de GPU del 0% fins i tot en els casos en què l'acceleració del maquinari i la detecció d'objectes s'executen correctament a la (i)GPU. Això no és un error de Frigate. Podeu reiniciar l'amfitrió per a corregir temporalment el problema i confirmar que la GPU funciona correctament. Això no afecta el rendiment."
-      },
       "gpuTemperature": "Temperatura de la GPU",
       "npuTemperature": "Temperatura NPU",
       "gpuCompute": "Càlcul / Codificació per GPU"
@@ -191,7 +185,20 @@
       },
       "audio": "Àudio:",
       "cameraProbeInfo": "Informació del sondeig de la càmera {{camera}}",
-      "streamDataFromFFPROBE": "Les dades de la transmissió són obtingudes mitjançant <code>ffprobe</code>."
+      "streamDataFromFFPROBE": "Les dades de la transmissió són obtingudes mitjançant <code>ffprobe</code>.",
+      "keyframes": {
+        "title": "Anàlisi de fotogrames clau",
+        "analyzing": "S'estan analitzant els fotogrames clau... queden {{seconds}} segons",
+        "stillAnalyzing": "Encara s'estan analitzant els fotogrames clau...",
+        "recordStream": "Registre de flux:",
+        "keyframeCount": "Fotogrames clau observats:",
+        "observedDuration": "Durada observada:",
+        "gap": "Espai de fotogrames clau (mín / avg / max):",
+        "segmentLength": "Longitud del segment d'enregistrament:",
+        "ok": "Fotogrames clau cada ,{{seconds}}s, bons per enregistrar i reproduir.",
+        "unknown": "No s'ha pogut determinar l'espaiat dels fotogrames clau.",
+        "recordDisabled": "L'enregistrament està desactivat per a aquesta càmera."
+      }
     },
     "title": "Càmeres",
     "overview": "Visió general",
@@ -227,11 +234,10 @@
     "detectHighCpuUsage": "{{camera}} te un ús elevat de CPU per la detecció ({{detectAvg}}%)",
     "detectIsVerySlow": "{{detect}} és molt lent ({{speed}} ms)",
     "detectIsSlow": "{{detect}} és lent ({{speed}} ms)",
-    "shmTooLow": "/dev/shm directori ({{total}} MB) hauria de ser incrementat com a mínim {{min}} MB.",
     "debugReplayActive": "La sessió de repetició de depuració està activa"
   },
   "enrichments": {
-    "title": "Enriquiments",
+    "title": "Anàlisi avançada",
     "embeddings": {
       "face_recognition_speed": "Velocitat de reconeixement facial",
       "image_embedding": "Vectors d'imatges",

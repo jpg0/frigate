@@ -18,6 +18,7 @@ from frigate.const import (
     CLIPS_DIR,
     MODEL_CACHE_DIR,
     PROCESS_PRIORITY_LOW,
+    STREAM_TYPE_MAIN,
     UPDATE_MODEL_STATE,
 )
 from frigate.log import redirect_output_to_logger, suppress_stderr_during
@@ -84,7 +85,7 @@ def read_training_metadata(model_name: str) -> dict[str, any] | None:
         return None
 
     try:
-        with open(metadata_path, "r") as f:
+        with open(metadata_path) as f:
             metadata = json.load(f)
         return metadata
     except Exception as e:
@@ -294,7 +295,7 @@ class ClassificationTrainingProcess(FrigateProcess):
             return True
 
         except Exception as e:
-            logger.error(f"Training failed for {self.model_name}: {e}", exc_info=True)
+            logger.exception(f"Training failed for {self.model_name}: {e}")
             return False
 
 
@@ -555,6 +556,7 @@ def _extract_keyframes(
                     (timestamp >= Recordings.start_time)
                     & (timestamp <= Recordings.end_time)
                     & (Recordings.camera == camera)
+                    & (Recordings.stream_type == STREAM_TYPE_MAIN)
                 )
                 .order_by(Recordings.start_time.desc())
                 .limit(1)
@@ -732,7 +734,7 @@ def collect_object_classification_examples(
 
     # Step 1: Query events for the specified label and cameras
     events = list(
-        Event.select().where((Event.label == label)).order_by(Event.start_time.asc())
+        Event.select().where(Event.label == label).order_by(Event.start_time.asc())
     )
 
     if not events:

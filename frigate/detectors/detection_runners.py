@@ -18,6 +18,36 @@ logger = logging.getLogger(__name__)
 # Process-wide lock serializing all OpenVINO compile/inference calls
 _OPENVINO_LOCK = threading.Lock()
 
+# model file path -> (model type, device the runner actually loaded on); the
+# embeddings maintainer folds this per enrichment for the stats endpoint.
+# Models load on several threads (reindex, lazy first use), so writes and
+# snapshots go through the lock.
+loaded_devices: dict[str, tuple[str, str]] = {}
+_loaded_devices_lock = threading.Lock()
+
+
+def record_loaded_device(model_path: str, model_type: str, device: str) -> None:
+    """Record the device a model loaded on, for the enrichment stats."""
+    with _loaded_devices_lock:
+        loaded_devices[model_path] = (model_type, device)
+
+    logger.info("Loaded %s model on %s", model_type, device)
+
+
+def snapshot_loaded_devices() -> dict[str, tuple[str, str]]:
+    """A copy that is safe to iterate while other threads load models."""
+    with _loaded_devices_lock:
+        return dict(loaded_devices)
+
+
+_PROVIDER_LABELS = {
+    "CUDAExecutionProvider": "CUDA",
+    "TensorrtExecutionProvider": "TensorRT",
+    "MIGraphXExecutionProvider": "MIGraphX",
+    "OpenVINOExecutionProvider": "OpenVINO",
+    "CPUExecutionProvider": "CPU",
+}
+
 
 def is_arm64_platform() -> bool:
     """Check if we're running on an ARM platform."""
@@ -25,25 +55,31 @@ def is_arm64_platform() -> bool:
     return machine in ("aarch64", "arm64", "armv8", "armv7l")
 
 
-def get_ort_session_options(
-    is_complex_model: bool = False,
-) -> ort.SessionOptions | None:
+def get_ort_session_options(model_type: str | None = None) -> ort.SessionOptions | None:
     """Get ONNX Runtime session options with appropriate settings.
 
     Args:
-        is_complex_model: Whether the model needs basic optimization to avoid graph fusion issues.
+        model_type: Model being loaded, used to pin its graph optimization level.
 
     Returns:
-        SessionOptions with appropriate optimization level, or None for default settings.
+        SessionOptions with a pinned optimization level, or None for default settings.
     """
-    if is_complex_model:
-        sess_options = ort.SessionOptions()
-        sess_options.graph_optimization_level = (
-            ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
-        )
-        return sess_options
+    # Import here to avoid circular imports
+    from frigate.embeddings.types import EnrichmentModelTypeEnum
 
-    return None
+    if model_type == EnrichmentModelTypeEnum.jina_v2.value:
+        # below EXTENDED the CUDA EP returns an identical vector for every image,
+        # and ORT_ENABLE_ALL fails to build on CPU with a SimplifiedLayerNormFusion error
+        level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+    elif model_type == EnrichmentModelTypeEnum.jina_v1.value:
+        # aggressive optimizations create or expect nodes that don't exist
+        level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+    else:
+        return None
+
+    sess_options = ort.SessionOptions()
+    sess_options.graph_optimization_level = level
+    return sess_options
 
 
 # Import OpenVINO only when needed to avoid circular dependencies
@@ -111,24 +147,15 @@ class BaseModelRunner(ABC):
         """Run inference with the model."""
         pass
 
+    @property
+    @abstractmethod
+    def device_name(self) -> str:
+        """Short label of the device the model actually loaded on."""
+        pass
+
 
 class ONNXModelRunner(BaseModelRunner):
     """Run ONNX models using ONNX Runtime."""
-
-    @staticmethod
-    def is_cpu_complex_model(model_type: str) -> bool:
-        """Check if model needs basic optimization level to avoid graph fusion issues.
-
-        Some models (like Jina-CLIP) have issues with aggressive optimizations like
-        SimplifiedLayerNormFusion that create or expect nodes that don't exist.
-        """
-        # Import here to avoid circular imports
-        from frigate.embeddings.types import EnrichmentModelTypeEnum
-
-        return model_type in [
-            EnrichmentModelTypeEnum.jina_v1.value,
-            EnrichmentModelTypeEnum.jina_v2.value,
-        ]
 
     @staticmethod
     def is_migraphx_complex_model(model_type: str) -> bool:
@@ -183,6 +210,18 @@ class ONNXModelRunner(BaseModelRunner):
 
         return self.ort.run(None, input)
 
+    @property
+    def device_name(self) -> str:
+        providers = self.ort.get_providers()
+
+        if not providers:
+            return "CPU"
+
+        provider = providers[0]
+        return _PROVIDER_LABELS.get(
+            provider, provider.removesuffix("ExecutionProvider")
+        )
+
 
 class CudaGraphRunner(BaseModelRunner):
     """Encapsulates CUDA Graph capture and replay using ONNX Runtime IOBinding.
@@ -208,15 +247,20 @@ class CudaGraphRunner(BaseModelRunner):
             EnrichmentModelTypeEnum.yolov9_license_plate.value,
         ]
 
+    # ORT performs two regular runs before it starts capturing, but on some
+    # driver / cuDNN combinations the arena still has to extend on the run that
+    # captures, and cudaMalloc is not allowed during capture. Running with
+    # capture disabled first keeps those allocations outside of the capture.
+    GRAPH_FREE_WARMUP_RUNS = 2
+
     def __init__(self, session: ort.InferenceSession, cuda_device_id: int):
         self._session = session
         self._cuda_device_id = cuda_device_id
-        self._captured = False
+        self._prepared = False
         self._io_binding: ort.IOBinding | None = None
         self._input_name: str | None = None
         self._output_names: list[str] | None = None
         self._input_ortvalue: ort.OrtValue | None = None
-        self._output_ortvalues: ort.OrtValue | None = None
 
     def get_input_names(self) -> list[str]:
         """Get input names for the model."""
@@ -226,38 +270,48 @@ class CudaGraphRunner(BaseModelRunner):
         """Get the input width of the model."""
         return self._session.get_inputs()[0].shape[3]
 
+    def _prepare(self, input_name: str, tensor_input: np.ndarray) -> None:
+        """Bind CUDA buffers and warm the session up with capture disabled."""
+        self._io_binding = self._session.io_binding()
+        self._input_name = input_name
+        self._output_names = [o.name for o in self._session.get_outputs()]
+
+        self._input_ortvalue = ort.OrtValue.ortvalue_from_numpy(
+            tensor_input, "cuda", self._cuda_device_id
+        )
+        self._io_binding.bind_ortvalue_input(self._input_name, self._input_ortvalue)
+
+        for name in self._output_names:
+            # Bind outputs to CUDA and allow ORT to allocate appropriately
+            self._io_binding.bind_output(name, "cuda", self._cuda_device_id)
+
+        # gpu_graph_id -1 disables capture and replay for the run
+        warmup_options = ort.RunOptions()
+        warmup_options.add_run_config_entry("gpu_graph_id", "-1")
+
+        for _ in range(self.GRAPH_FREE_WARMUP_RUNS):
+            self._session.run_with_iobinding(self._io_binding, warmup_options)
+
+        self._prepared = True
+
     def run(self, input: dict[str, Any]):
         # Extract the single tensor input (assuming one input)
         input_name = list(input.keys())[0]
-        tensor_input = input[input_name]
-        tensor_input = np.ascontiguousarray(tensor_input)
+        tensor_input = np.ascontiguousarray(input[input_name])
 
-        if not self._captured:
-            # Prepare IOBinding with CUDA buffers and let ORT allocate outputs on device
-            self._io_binding = self._session.io_binding()
-            self._input_name = input_name
-            self._output_names = [o.name for o in self._session.get_outputs()]
+        if not self._prepared:
+            self._prepare(input_name, tensor_input)
+        else:
+            # Replay using updated input
+            self._input_ortvalue.update_inplace(tensor_input)
 
-            self._input_ortvalue = ort.OrtValue.ortvalue_from_numpy(
-                tensor_input, "cuda", self._cuda_device_id
-            )
-            self._io_binding.bind_ortvalue_input(self._input_name, self._input_ortvalue)
-
-            for name in self._output_names:
-                # Bind outputs to CUDA and allow ORT to allocate appropriately
-                self._io_binding.bind_output(name, "cuda", self._cuda_device_id)
-
-            # First IOBinding run to allocate, execute, and capture CUDA Graph
-            ro = ort.RunOptions()
-            self._session.run_with_iobinding(self._io_binding, ro)
-            self._captured = True
-            return self._io_binding.copy_outputs_to_cpu()
-
-        # Replay using updated input, copy results to CPU
-        self._input_ortvalue.update_inplace(tensor_input)
         ro = ort.RunOptions()
         self._session.run_with_iobinding(self._io_binding, ro)
         return self._io_binding.copy_outputs_to_cpu()
+
+    @property
+    def device_name(self) -> str:
+        return "CUDA"
 
 
 class OpenVINOModelRunner(BaseModelRunner):
@@ -323,17 +377,36 @@ class OpenVINOModelRunner(BaseModelRunner):
         if device in ["GPU", "AUTO", "NPU"]:
             self.ov_core.set_property(device, {"PERFORMANCE_HINT": "LATENCY"})
 
-        if device == "NPU" and OpenVINOModelRunner.is_detection_model(model_type):
+        if device in ["GPU", "AUTO"]:
             try:
-                self.ov_core.set_property(device, {"NPU_TURBO": "YES"})
+                self.ov_core.set_property("GPU", {"GPU_QUEUE_THROTTLE": "LOW"})
             except Exception as e:
-                logger.debug(f"NPU_TURBO not supported by driver: {e}")
+                logger.debug(f"GPU_QUEUE_THROTTLE not supported: {e}")
+
+        # Some keys must be passed as compile-time config so that it can be caught
+        compile_config = {}
+
+        if device == "NPU" and OpenVINOModelRunner.is_detection_model(model_type):
+            compile_config["NPU_TURBO"] = "YES"
+
+        self.compiled_device = device
 
         # Compile model under the shared lock
         with _OPENVINO_LOCK:
-            self.compiled_model = self.ov_core.compile_model(
-                model=model_path, device_name=device
-            )
+            try:
+                self.compiled_model = self.ov_core.compile_model(
+                    model=model_path, device_name=device, config=compile_config
+                )
+            except RuntimeError as e:
+                if not compile_config:
+                    raise
+
+                logger.debug(
+                    f"Failed to compile with {compile_config}, retrying without: {e}"
+                )
+                self.compiled_model = self.ov_core.compile_model(
+                    model=model_path, device_name=device
+                )
 
             # Create reusable inference request
             self.infer_request = self.compiled_model.create_infer_request()
@@ -348,6 +421,22 @@ class OpenVINOModelRunner(BaseModelRunner):
             except RuntimeError:
                 # model is complex and has dynamic shape
                 pass
+
+    @property
+    def device_name(self) -> str:
+        device = self.compiled_device
+
+        if device == "AUTO":
+            try:
+                resolved = self.compiled_model.get_property("EXECUTION_DEVICES")
+
+                if resolved:
+                    device = ",".join(str(d) for d in resolved)
+            except Exception:
+                # older OpenVINO builds do not expose the property
+                pass
+
+        return f"OpenVINO {device}"
 
     def get_input_names(self) -> list[str]:
         """Get input names for the model."""
@@ -491,10 +580,14 @@ class RKNNModelRunner(BaseModelRunner):
 
         except ImportError:
             logger.error("RKNN Lite not available")
-            raise ImportError("RKNN Lite not available")
+            raise ImportError("RKNN Lite not available") from None
         except Exception as e:
             logger.error(f"Error loading RKNN model: {e}")
             raise
+
+    @property
+    def device_name(self) -> str:
+        return "RKNN"
 
     def get_input_names(self) -> list[str]:
         """Get input names for the model."""
@@ -576,6 +669,14 @@ class RKNNModelRunner(BaseModelRunner):
                 pass
 
 
+def _record_runner(
+    model_path: str, model_type: str, runner: BaseModelRunner
+) -> BaseModelRunner:
+    """Record the device a freshly loaded runner ended up on."""
+    record_loaded_device(model_path, model_type, runner.device_name)
+    return runner
+
+
 def get_optimized_runner(
     model_path: str, device: str | None, model_type: str, **kwargs
 ) -> BaseModelRunner:
@@ -586,7 +687,7 @@ def get_optimized_runner(
         rknn_path = auto_convert_model(model_path)
 
         if rknn_path:
-            return RKNNModelRunner(rknn_path)
+            return _record_runner(model_path, model_type, RKNNModelRunner(rknn_path))
 
     providers, options = get_ort_providers(device == "CPU", device, **kwargs)
 
@@ -595,7 +696,11 @@ def get_optimized_runner(
         # In other images we will get CUDA / ROCm which are preferred over OpenVINO
         # There is currently no way to prioritize OpenVINO over CUDA / ROCm in these images
         if device != "CPU" and is_openvino_gpu_npu_available():
-            return OpenVINOModelRunner(model_path, device, model_type, **kwargs)
+            return _record_runner(
+                model_path,
+                model_type,
+                OpenVINOModelRunner(model_path, device, model_type, **kwargs),
+            )
 
     if (
         CudaGraphRunner.is_model_supported(model_type)
@@ -605,13 +710,17 @@ def get_optimized_runner(
             **options[0],
             "enable_cuda_graph": True,
         }
-        return CudaGraphRunner(
-            ort.InferenceSession(
-                model_path,
-                providers=providers,
-                provider_options=options,
+        return _record_runner(
+            model_path,
+            model_type,
+            CudaGraphRunner(
+                ort.InferenceSession(
+                    model_path,
+                    providers=providers,
+                    provider_options=options,
+                ),
+                options[0]["device_id"],
             ),
-            options[0]["device_id"],
         )
 
     if (
@@ -623,14 +732,16 @@ def get_optimized_runner(
         providers.pop(0)
         options.pop(0)
 
-    return ONNXModelRunner(
-        ort.InferenceSession(
-            model_path,
-            sess_options=get_ort_session_options(
-                ONNXModelRunner.is_cpu_complex_model(model_type)
+    return _record_runner(
+        model_path,
+        model_type,
+        ONNXModelRunner(
+            ort.InferenceSession(
+                model_path,
+                sess_options=get_ort_session_options(model_type),
+                providers=providers,
+                provider_options=options,
             ),
-            providers=providers,
-            provider_options=options,
+            model_type=model_type,
         ),
-        model_type=model_type,
     )

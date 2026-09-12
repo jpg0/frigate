@@ -7,7 +7,7 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import cv2
 from numpy import ndarray
@@ -20,14 +20,15 @@ logger = logging.getLogger(__name__)
 
 
 def get_event_thumbnail_bytes(event: Event) -> bytes | None:
+    # callers treat empty bytes as a valid image, so normalize them to None
     if event.thumbnail:
-        return base64.b64decode(event.thumbnail)
+        return base64.b64decode(event.thumbnail) or None
     else:
         try:
             with open(
                 os.path.join(THUMB_DIR, event.camera, f"{event.id}.webp"), "rb"
             ) as f:
-                return f.read()
+                return f.read() or None
         except Exception:
             return None
 
@@ -268,6 +269,41 @@ def delete_event_thumbnail(event: Event) -> bool:
         return True
 
 
+### Training Images
+
+TRAINING_IMAGE_EXTENSIONS = (".webp", ".png", ".jpg", ".jpeg")
+
+
+def trim_oldest_files(folder: str, max_files: int) -> None:
+    """Delete the oldest training images until at most max_files remain."""
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return
+
+    files: list[tuple[float, str]] = []
+
+    for name in names:
+        if not name.lower().endswith(TRAINING_IMAGE_EXTENSIONS):
+            continue
+
+        path = os.path.join(folder, name)
+
+        # the UI can move or delete an image between listdir and stat
+        try:
+            files.append((os.path.getctime(path), path))
+        except OSError:
+            continue
+
+    files.sort(reverse=True)
+
+    for _, path in files[max_files:]:
+        try:
+            os.unlink(path)
+        except OSError:
+            logger.debug("Unable to delete training image %s", path)
+
+
 ### File Locking
 
 
@@ -323,7 +359,7 @@ class FileLock:
         self.timeout = timeout
         self.poll_interval = poll_interval
         self.stale_timeout = stale_timeout
-        self._fd: Optional[int] = None
+        self._fd: int | None = None
         self._acquired = False
 
         if cleanup_stale_on_init:
@@ -367,7 +403,7 @@ class FileLock:
 
         return False
 
-    def acquire(self, timeout: Optional[int] = None) -> bool:
+    def acquire(self, timeout: int | None = None) -> bool:
         """
         Acquire the file lock using fcntl.flock().
 
@@ -400,7 +436,7 @@ class FileLock:
                     self._acquired = True
                     logger.debug(f"Acquired lock: {self.lock_path}")
                     return True
-                except (OSError, IOError):
+                except OSError:
                     # Lock is held by another process
                     if time.time() - start_time >= timeout:
                         logger.warning(f"Timeout waiting for lock: {self.lock_path}")

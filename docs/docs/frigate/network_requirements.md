@@ -11,9 +11,9 @@ Frigate is designed to run locally and does not require a persistent internet co
 
 Frigate's internet usage falls into three categories:
 
-1. **One-time model downloads** — ML models are downloaded the first time a feature is enabled, then cached locally. No internet is needed on subsequent startups.
-2. **Optional cloud services** — Features like Frigate+ and Generative AI connect to external APIs only when explicitly configured.
-3. **Build-time dependencies** — Components bundled into the Docker image during the build process. These require no internet at runtime.
+1. **One-time model downloads**: ML models are downloaded the first time a feature is enabled, then cached locally. No internet is needed on subsequent startups.
+2. **Optional cloud services**: Features like Frigate+ and Generative AI connect to external APIs only when explicitly configured.
+3. **Build-time dependencies**: Components bundled into the Docker image during the build process. These require no internet at runtime.
 
 :::tip
 
@@ -32,7 +32,13 @@ The following models are downloaded automatically the first time their associate
 | [License plate recognition](/configuration/license_plate_recognition)                         | PaddleOCR (detection, classification, recognition) + YOLOv9 plate detector | GitHub               |
 | [Bird classification](/configuration/bird_classification)                                     | MobileNetV2 bird model + label map                                         | GitHub               |
 | [Custom classification](/configuration/custom_classification/state_classification) (training) | MobileNetV2 ImageNet base weights (via Keras)                              | Google storage       |
-| [Audio transcription](/configuration/advanced/system)                                                | Whisper or Sherpa-ONNX streaming model                                     | HuggingFace / OpenAI |
+| [Audio transcription](/configuration/advanced/system)                                         | Whisper or Sherpa-ONNX streaming model                                     | HuggingFace / OpenAI |
+
+:::note
+
+The MobileNetV2 base weights are the one exception to the `/config/model_cache/` rule. They are also the only entry that is not downloaded when the feature is enabled: Frigate fetches them when a training run actually starts.
+
+:::
 
 ### Hardware-Specific Detector Models
 
@@ -49,6 +55,24 @@ If you are using one of the following hardware detectors and have not provided y
 The default CPU, EdgeTPU, and OpenVINO object detection models are bundled into the Docker image and do not require any download at runtime.
 
 :::
+
+### Detector Runtimes
+
+The SDKs for a few hardware detectors are not shipped in the Frigate image. They are downloaded the first time that detector is configured, verified against checksums pinned in the Frigate release, and installed into the Frigate user's home directory (`/config/.local` by default). Once installed they are not downloaded again until a Frigate release pins a new version.
+
+| Detector                                                       | Version | Files                                                                                                                                                                                                 | Source                                                                                     |
+| -------------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [Hailo 8 / 8L](/configuration/object_detectors#hailo-8)        | 4.21.0  | `hailort-debian12-amd64.tar.gz` and `hailort-4.21.0-cp311-cp311-linux_x86_64.whl` on x86, `hailort-debian12-arm64.tar.gz` and `hailort-4.21.0-cp311-cp311-linux_aarch64.whl` on arm64 | [GitHub release](https://github.com/frigate-nvr/hailort/releases/tag/v4.21.0)              |
+| [MemryX MX3](/configuration/object_detectors#memryx-mx3)       | 2.1.0   | `mx_accl_frigate-2.1.0.zip` (the release source archive, renamed)                                                                                                                                     | [GitHub archive](https://github.com/memryx/mx_accl_frigate/archive/refs/tags/v2.1.0.zip)   |
+| [AXERA AXEngine](/configuration/object_detectors#axera)        | 0.1.3   | `axengine-0.1.3-py3-none-any.whl`                                                                                                                                                                     | [GitHub release](https://github.com/AXERA-TECH/pyaxengine/releases/tag/0.1.3-frigate)      |
+
+If the container cannot reach GitHub, provide the files yourself:
+
+1. Download the files for your architecture on a machine with internet access.
+2. Place them, with exactly the file names listed above, in `/config/model_cache/runtimes/<detector>/`, where `<detector>` is the detector `type` from your config (`hailo8l`, `memryx`, or `axengine`).
+3. Start Frigate. Files whose checksum matches are installed without any download; a file with the wrong checksum is discarded and downloaded again, so a failed startup log names the file to replace.
+
+The `GITHUB_ENDPOINT` mirror variable below applies to these downloads as well.
 
 ### Preventing Model Downloads
 
@@ -73,9 +97,9 @@ If your Frigate instance has restricted internet access, you can point model dow
 | Environment Variable                | Default                             | Used By                                       |
 | ----------------------------------- | ----------------------------------- | --------------------------------------------- |
 | `HF_ENDPOINT`                       | `https://huggingface.co`            | Semantic search, Sherpa-ONNX, AXEngine models |
-| `GITHUB_ENDPOINT`                   | `https://github.com`                | Face recognition, LPR, RKNN models            |
+| `GITHUB_ENDPOINT`                   | `https://github.com`                | Face recognition, LPR, RKNN models, detector runtimes |
 | `GITHUB_RAW_ENDPOINT`               | `https://raw.githubusercontent.com` | Bird classification                           |
-| `TF_KERAS_MOBILENET_V2_WEIGHTS_URL` | Google storage (Keras default)      | Custom classification training                |
+| `TF_KERAS_MOBILENET_V2_WEIGHTS_URL` | Unset (Keras uses its own default)  | Custom classification training                |
 
 ## Optional Cloud Services
 
@@ -91,13 +115,13 @@ See [Frigate+](/integrations/plus) for details.
 
 When a Generative AI provider is configured, Frigate sends images and prompts to the configured provider for event descriptions, chat, and camera monitoring. Available providers:
 
-| Provider      | Internet Required                                                |
-| ------------- | ---------------------------------------------------------------- |
-| OpenAI        | Yes — connects to OpenAI API (or custom base URL)                |
-| Google Gemini | Yes — connects to Google Generative AI API                       |
-| Azure OpenAI  | Yes — connects to your Azure endpoint                            |
-| Ollama        | Depends — typically local (`localhost:11434`), but can be remote |
-| llama.cpp     | No — runs entirely locally                                       |
+| Provider      | Internet Required                                               |
+| ------------- | --------------------------------------------------------------- |
+| OpenAI        | Yes, connects to OpenAI API (or custom base URL)                |
+| Google Gemini | Yes, connects to Google Generative AI API                       |
+| Azure OpenAI  | Yes, connects to your Azure endpoint                            |
+| Ollama        | Depends: typically local (`localhost:11434`), but can be remote |
+| llama.cpp     | No, runs entirely locally                                       |
 
 Disable Generative AI by removing the `genai` configuration from your cameras. See [Generative AI](/configuration/genai/genai_config) for details.
 
@@ -118,38 +142,48 @@ When [notifications](/configuration/notifications) are enabled and users have re
 
 If an [MQTT broker](/integrations/mqtt) is configured, Frigate maintains a connection to the broker's host and port. This is typically a local network connection, but will require internet if you use a cloud-hosted MQTT broker.
 
-### DeepStack / CodeProject.AI
-
-When using the [DeepStack detector plugin](/configuration/object_detectors), Frigate sends images to the configured API endpoint for inference. This is typically local but depends on where the service is hosted.
-
 ## WebRTC (STUN)
 
 For [WebRTC live streaming](/configuration/live), Frigate uses STUN for NAT traversal:
 
-- **go2rtc** defaults to a local STUN listener (`stun:8555`) — no internet required.
+- **go2rtc** defaults to a local STUN listener (`stun:8555`), no internet required.
 - **The web UI's WebRTC player** includes a fallback to Google's public STUN server (`stun:stun.l.google.com:19302`), which requires internet.
 
 ## Home Assistant Supervisor
 
-When running as a Home Assistant add-on, the go2rtc startup script queries the local Supervisor API (`http://supervisor/`) to discover the host IP address and WebRTC port. This is a local network call to the Home Assistant host, not an internet connection.
+When running as a Home Assistant App, the go2rtc startup script queries the local Supervisor API (`http://supervisor/`) to discover the host IP address and WebRTC port. This is a local network call to the Home Assistant host, not an internet connection.
 
 ## What Does NOT Require Internet
 
-- **Object detection** — CPU, EdgeTPU, OpenVINO, and other bundled detector models are included in the Docker image.
-- **Recording and playback** — All video is stored and served locally.
-- **Live streaming** — Camera streams are pulled over your local network. MSE and HLS streaming work without any external connections.
-- **The web interface** — Fully self-contained with no external fonts, scripts, analytics, or CDN dependencies. All translations are bundled locally.
-- **Custom classification inference** — After training, custom models run entirely locally.
-- **Audio detection** — The YAMNet audio classification model is bundled in the Docker image.
+- **Object detection**: CPU, EdgeTPU, OpenVINO, and other bundled detector models are included in the Docker image.
+- **Recording and playback**: All video is stored and served locally.
+- **Live streaming**: Camera streams are pulled over your local network. MSE and HLS streaming work without any external connections.
+- **The web interface**: Fully self-contained with no external fonts, scripts, analytics, or CDN dependencies. All translations are bundled locally.
+- **Custom classification inference**: After training, custom models run entirely locally.
+- **Audio detection**: The YAMNet audio classification model is bundled in the Docker image.
 
 ## Running Frigate Offline
 
 To run Frigate in an air-gapped or offline environment:
 
-1. **Pre-download models** — Start Frigate with internet access once with all desired features enabled. Models will be cached in `/config/model_cache/`.
-2. **Disable version check** — Set `telemetry.version_check: false` in your configuration.
-3. **Block outbound model requests** — Set the `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` environment variables to prevent HuggingFace and Transformers from attempting any network requests.
-4. **Avoid cloud features** — Do not configure Frigate+, Generative AI providers that require internet, or cloud MQTT brokers.
-5. **Use local model mirrors** — If limited internet is available, set the `HF_ENDPOINT`, `GITHUB_ENDPOINT`, and `GITHUB_RAW_ENDPOINT` environment variables to point to local mirrors.
+1. **Pre-download models**: Start Frigate with internet access once with all desired features enabled. Models will be cached in `/config/model_cache/`.
+2. **Pre-download the training base weights**: If you plan to train custom classification models, set `TF_KERAS_MOBILENET_V2_WEIGHTS_URL` before training, then run one training job while online. Without this variable the base weights are cached outside `/config/` and are lost whenever the container is recreated, so a later training run will fail offline. If the machine never has internet access, copy the weights in manually as described below.
+3. **Disable version check**: Set `telemetry.version_check: false` in your configuration.
+4. **Block outbound model requests**: Set the `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` environment variables to prevent HuggingFace and Transformers from attempting any network requests.
+5. **Avoid cloud features**: Do not configure Frigate+, Generative AI providers that require internet, or cloud MQTT brokers.
+6. **Use local model mirrors**: If limited internet is available, set the `HF_ENDPOINT`, `GITHUB_ENDPOINT`, `GITHUB_RAW_ENDPOINT`, and `TF_KERAS_MOBILENET_V2_WEIGHTS_URL` environment variables to point to local mirrors.
 
 After these steps, Frigate will operate with no outbound internet connections.
+
+### Manually Copying the Training Base Weights
+
+On a machine with internet access, download the weights:
+
+```bash
+curl -L -o mobilenet_v2_weights.h5 \
+  "https://storage.googleapis.com/tensorflow/keras-applications/mobilenet_v2/mobilenet_v2_weights_tf_dim_ordering_tf_kernels_0.35_224_no_top.h5"
+```
+
+Copy the file into your Frigate config volume as `/config/model_cache/MobileNet/mobilenet_v2_weights.h5`, keeping that exact filename, then set the environment variable `TF_KERAS_MOBILENET_V2_WEIGHTS_URL` in your Docker compose file to the URL above and restart Frigate.
+
+The variable must be set even though the URL is never contacted. If it is unset, Frigate ignores the copied file and asks Keras to download the weights instead.

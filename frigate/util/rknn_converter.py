@@ -1,12 +1,13 @@
 """RKNN model conversion utility for Frigate."""
 
+import importlib
 import logging
 import os
+import site
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 from frigate.const import SUPPORTED_RK_SOCS
 from frigate.util.file import FileLock
@@ -102,29 +103,41 @@ def ensure_torch_dependencies() -> bool:
     except ImportError:
         logger.info("PyTorch not found, attempting to install...")
 
-        try:
-            subprocess.check_call(
-                [
-                    sys.executable,
-                    "-m",
-                    "pip",
-                    "install",
-                    "--break-system-packages",
-                    "setuptools<81",
-                    "torch",
-                    "torchvision",
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--break-system-packages",
+                "setuptools<81",
+                "torch",
+                "torchvision",
+            ],
+            capture_output=True,
+            text=True,
+        )
 
-            import torch  # type: ignore # noqa: F401
-
-            logger.info("PyTorch installed successfully")
-            return True
-        except (subprocess.CalledProcessError, ImportError) as e:
-            logger.error(f"Failed to install PyTorch: {e}")
+        if result.returncode != 0:
+            logger.error("Failed to install PyTorch:\n%s", result.stderr[-4000:])
             return False
+
+        # as an unprivileged user pip falls back to the user site, which is
+        # only on sys.path at startup if it already existed
+        user_site = site.getusersitepackages()
+
+        if os.path.isdir(user_site) and user_site not in sys.path:
+            site.addsitedir(user_site)
+            importlib.invalidate_caches()
+
+        try:
+            import torch  # type: ignore # noqa: F401
+        except ImportError as e:
+            logger.error(f"Failed to import PyTorch after installing it: {e}")
+            return False
+
+        logger.info("PyTorch installed successfully")
+        return True
 
 
 def ensure_rknn_toolkit() -> bool:
@@ -139,7 +152,7 @@ def ensure_rknn_toolkit() -> bool:
         return False
 
 
-def get_soc_type() -> Optional[str]:
+def get_soc_type() -> str | None:
     """Get the SoC type from device tree."""
     try:
         with open("/proc/device-tree/compatible") as file:
@@ -160,7 +173,7 @@ def convert_onnx_to_rknn(
     output_path: str,
     model_type: str,
     quantization: bool = False,
-    soc: Optional[str] = None,
+    soc: str | None = None,
 ) -> bool:
     """
     Convert ONNX model to RKNN format.
@@ -345,7 +358,7 @@ def wait_for_conversion_completion(
 
 def auto_convert_model(
     model_path: str, model_type: str | None = None, quantization: bool = False
-) -> Optional[str]:
+) -> str | None:
     """
     Automatically convert a model to RKNN format if needed.
 

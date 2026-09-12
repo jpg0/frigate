@@ -9,8 +9,9 @@ loop state — all inputs and outputs are plain data.
 import logging
 import math
 import time
+from collections.abc import Generator
 from datetime import datetime
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any
 
 from frigate.embeddings.util import ZScoreNormalization
 from frigate.models import Event
@@ -30,7 +31,7 @@ def chunk_content(content: str, chunk_size: int = 80) -> Generator[str, None, No
     if not content:
         return
     words = content.split(" ")
-    current: List[str] = []
+    current: list[str] = []
     current_len = 0
     for w in words:
         current.append(w)
@@ -43,9 +44,14 @@ def chunk_content(content: str, chunk_size: int = 80) -> Generator[str, None, No
         yield " ".join(current)
 
 
+def format_local_time(timestamp: float) -> str:
+    """Format a unix timestamp as the server-local string quoted to users."""
+    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %I:%M:%S %p")
+
+
 def format_events_with_local_time(
-    events_list: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    events_list: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """Add human-readable local start/end times to each event for the LLM."""
     result = []
     for evt in events_list:
@@ -57,11 +63,9 @@ def format_events_with_local_time(
             start_ts = evt.get("start_time")
             end_ts = evt.get("end_time")
             if start_ts is not None:
-                dt_start = datetime.fromtimestamp(start_ts)
-                copy_evt["start_time_local"] = dt_start.strftime("%Y-%m-%d %I:%M:%S %p")
+                copy_evt["start_time_local"] = format_local_time(start_ts)
             if end_ts is not None:
-                dt_end = datetime.fromtimestamp(end_ts)
-                copy_evt["end_time_local"] = dt_end.strftime("%Y-%m-%d %I:%M:%S %p")
+                copy_evt["end_time_local"] = format_local_time(end_ts)
         except (TypeError, ValueError, OSError):
             pass
         result.append(copy_evt)
@@ -84,9 +88,9 @@ def distance_to_score(distance: float, stats: ZScoreNormalization) -> float:
 
 
 def fuse_scores(
-    visual_score: Optional[float],
-    description_score: Optional[float],
-) -> Optional[float]:
+    visual_score: float | None,
+    description_score: float | None,
+) -> float | None:
     """Weighted fusion of visual and description similarity scores.
 
     If one side is missing (e.g., no description embedding for this event),
@@ -102,7 +106,7 @@ def fuse_scores(
     return VISUAL_WEIGHT * visual_score + DESCRIPTION_WEIGHT * description_score
 
 
-def parse_iso_to_timestamp(value: Optional[str]) -> Optional[float]:
+def parse_iso_to_timestamp(value: str | None) -> float | None:
     """Parse an ISO-8601 string as server-local time -> unix timestamp.
 
     Mirrors the parsing _execute_search_objects uses so both tools accept the
@@ -119,9 +123,9 @@ def parse_iso_to_timestamp(value: Optional[str]) -> Optional[float]:
         return None
 
 
-def hydrate_event(event: Event, score: Optional[float] = None) -> Dict[str, Any]:
+def hydrate_event(event: Event, score: float | None = None) -> dict[str, Any]:
     """Convert an Event row into the dict shape returned by find_similar_objects."""
-    data: Dict[str, Any] = {
+    data: dict[str, Any] = {
         "id": event.id,
         "camera": event.camera,
         "label": event.label,
